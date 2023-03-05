@@ -11,21 +11,18 @@ This course introduces graduate students to quantitative methods in political sc
 The main goals of this course are to develop sound critical judgment about quantitative studies of political problems, to interpret quantitative analyses in published work, to understand the logic of statistical inference and to recognize and understand basic regression models. It provides the skills necessary to conduct your own quantitative analyses and teaches how to do so using R. This class lays the foundation for Advanced Quantitative Methods, which will be taught in Spring 2022.
 
 Structure:
-Basics:
 
 - Week 0 Getting Started
 - Week 1 Introduction. Visualizing Data
 - Week 2 Fundamentals of Probability
 - Week 3 Sampling and Statistical Inference
-  Linear Regression Readings Slides Lab HW
-- Week 4 Linear Regression: Basics & Hypothesis Testing
+- Week 4 Linear Regression Readings Slides Lab HW, Linear Regression: Basics & Hypothesis Testing
 - Week 5 Linear Regression: Statistical Control & Causality
 - Week 6 Linear Regression: Dummies and Interactions
 - Week 7 Linear Regression: Interpreting Substantive Effects via the Simulation Method
 - Week 8 Linear Regression: Diagnostics
 - Week 9 Midterm
-  Non-linear Probability Models Readings Slides Lab HW
-- Week 10 The Likelihood Theory of Statistical Inference
+- Week 10 Non-linear Probability Models Readings Slides Lab HW The Likelihood Theory of Statistical Inference
 - Week 11 Binary Data
 - Week 12 Count Data
 - Week 13 Semester Wrap-up

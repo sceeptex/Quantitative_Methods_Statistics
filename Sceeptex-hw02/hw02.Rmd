@@ -1,0 +1,350 @@
+---
+title: "Quantitative Methods in Political Science - Homework 2"
+author: "Tobias Fechner MatNr. 1820333"
+date: "Due: September 28, 2021"
+output:
+  html_document:
+    toc: no
+  pdf_document:
+    toc: yes
+---
+
+```{r setup, include=FALSE}
+# The first line sets an option for the final document that can be produced from
+# the .Rmd file. Don't worry about it.
+knitr::opts_chunk$set(echo = TRUE)
+
+# The next bit (lines 22-43) is quite powerful and useful. 
+# First you define which packages you need for your analysis and assign it to 
+# the p_needed object. 
+p_needed <- c("viridis")
+
+# Now you check which packages are already installed on your computer.
+# The function installed.packages() returns a vector with all the installed 
+# packages.
+packages <- rownames(installed.packages())
+# Then you check which of the packages you need are not installed on your 
+# computer yet. Essentially you compare the vector p_needed with the vector
+# packages. The result of this comparison is assigned to p_to_install.
+p_to_install <- p_needed[!(p_needed %in% packages)]
+# If at least one element is in p_to_install you then install those missing
+# packages.
+if (length(p_to_install) > 0) {
+  install.packages(p_to_install)
+}
+# Now that all packages are installed on the computer, you can load them for
+# this project. Additionally the expression returns whether the packages were
+# successfully loaded.
+sapply(p_needed, require, character.only = TRUE)
+```
+
+## Part 1: Definitions 
+
+1.1 Define in one sentence what a random variable is. Give two examples from your field of studies. One with a discrete and one with continuous realizations.
+  
+Answer:
+
+A random variable is a variable with an unknown outcome in a statistical experiment.
+
+A discrete value can be measured by counting the different results. These results can be True or False. For example, this could be whether or not a student has a working student contract.
+
+A continuous value can be measured on a scale. These values can range for example from 0 to 100. This could be, for example, the amount each student has studied per weak. 
+
+
+1.2. Define in one sentence what is meant by the colloquial phrase "the probability of x is..."
+
+Answer:
+
+By the colloquial phrase "the probability of x is..." is meant how likely the probability of an event is. Or more specific if you repeat an experiment an infinite amount of times and the probability of this event is 50%. The event will occur in half of the cases.
+
+
+## Part 2: Probability in R
+
+You should get familiar with the basic probability distributions and their behavior. In the following you will have to plot several of them. Please choose a suitable way of displaying them in each case (i.e., adjust axis limits, choose informative labels).
+
+2.1. Plot the density function of a normal distribution with mean 1 and variance of 1. Then plot the cumulative distribution function of this variable.
+
+
+```{r Exercise 2.1.1}
+
+# density function of a normal distribution with mean 1 and variance of 1
+x_values <- seq(from = -4, to = 6, by = 0.1)
+
+plot(x = x_values, 
+     y = dnorm(x_values, mean = 1, sd = 1),
+     bty = "n", 
+     las = 1,
+     type = "l",
+     col = viridis(1),
+     lwd = 2,
+     main = "PDF of N(1, 1)",
+     ylab = "f(x)",
+     xlab = "x"
+     )
+
+```
+```{r Exercise 2.1.2}
+
+# cumulative distribution function of this variable.
+x_values <- seq(from = -4, to = 6, by = 0.1)
+
+plot(x = x_values, 
+     y = pnorm(x_values, mean = 1, sd = 1),
+     bty = "n", 
+     las = 1,
+     type = "l",
+     col = viridis(1),
+     lwd = 2,
+     main = "CDF of N(1, 1)",
+     ylab = "F(x)",
+     xlab = "x"
+     )
+
+```
+
+
+2.2. Briefly explain the difference between the density function and the cumulative distribution function.
+
+Answer:
+
+The density function is a continuous value of a random variable. Therefore, it shows the probability P for any point x. To represent a continuous PDF, the statistical experiment must be continuous. 
+
+The cumulative function is the summed version of the density function. It therefore shows the summed probability up to and equal to a point x.
+
+2.3. Plot the density function and the cumulative distribution function of a standard normal distribution.
+
+```{r Exercise 2.3}
+
+x_values <- seq(from = -5, to = 5, by = 0.1)
+
+plot(x = x_values, 
+     y = dnorm(x_values, mean = 0, sd = 1),
+     bty = "n", 
+     las = 1,
+     type = "l",
+     col = viridis(1),
+     lwd = 2,
+     main = "PDF of N(0, 1) - standard normal distribution.",
+     ylab = "f(x)",
+     xlab = "x"
+     )
+
+x_values <- seq(from = -5, to = 5, by = 0.1)
+
+plot(x = x_values, 
+     y = pnorm(x_values, mean = 0, sd = 1),
+     bty = "n", 
+     las = 1,
+     type = "l",
+     col = viridis(1),
+     lwd = 2,
+     main = "CDF of N(0, 1) - standard normal distribution.",
+     ylab = "F(x)",
+     xlab = "x"
+     )
+
+```
+
+2.4. Plot the probability mass function of a random variable that follows a binomial distribution with 30 trials and a success probability of $\frac{1}{2}$.
+
+```{r Exercise 2.4}
+
+x_values <- c(0:30)
+
+# Now we produce an empty plot.
+plot(
+  x = x_values,
+  ylim = c(0, 0.2), # With ylim you can adjust the limits of the y axis.
+  type = "n",       # type "n" produces an empty plot window.
+  main = "PMF for Binomial (n = 30, p = 0.5)",
+  xlab = "x",
+  ylab = "p(x)",
+  las = 1,
+  frame = F
+  )
+
+# Let's add the points.
+points(x_values, 
+       dbinom(x_values, size = 30, p = 0.5), 
+       cex = 0.3, 
+       pch = 19, 
+       col = viridis(1)
+       )
+
+# And those lines we know from the lecture.
+segments(x0 = x_values, 
+         y0 = 0, 
+         x1 = x_values,
+         y1 = dbinom(x_values, size = 30, p = 0.5), 
+         col = viridis(1)
+         )  
+
+```
+
+2.5. Compare the cumulative distribution function of 50 coin tosses for (i) a fair coin and (ii) a biased coin (choose the amount of bias yourself).
+
+```{r Exercise 2.5}
+
+# Bias1 = 0.5 (fair)
+# Bias2 = 0.4 (unfair)
+
+x_values <- c(0:100)
+
+plot(x = x_values, 
+     y = pbinom(x_values, size = 100, p = 0.5),
+     type = "p",
+     main = "CDF for Binomial (n = 100, p = 0.5)",
+     xlab = "x",
+     ylab = "Probability",
+     bty = "n",
+     las = 1,
+     pch = 19, 
+     cex = 0.3, 
+     col = viridis(2)[1],
+     frame = F
+     )
+par(new=TRUE)
+
+plot(x = x_values, 
+     y = pbinom(x_values, size = 100, p = 0.4),
+     type = "p",
+     main = "CDF for Binomial (n = 100, p = 0.5)",
+     xlab = "x",
+     ylab = "Probability",
+     bty = "n",
+     las = 1,
+     pch = 19, 
+     cex = 0.3, 
+     col = viridis(2)[2],
+     frame = F,
+     
+     )
+
+legend("topright",
+  bty = "n",
+  col = viridis(2)[1:2],
+  lwd = 2,
+  lty = 2,
+  legend = c(
+    "Fair coin game (p=0.5)",
+    "Unfair coin game (p=0.4)"
+  )
+)
+
+```
+
+## Part 3: Answer probabilistic questions
+
+Suppose you want to forecast election results. You believe that voters are very good in forecasting the elections. Therefore, you take a sample from the voter population and ask them: What percentage of votes will the Greens receive in the upcoming elections? You find that the answers to this question in your sample approximately follow a normal distribution with a mean of 15 and a standard deviation of 3.
+
+3.1. Plot the distribution in your sample.
+
+```{r Exercise 3.1}
+
+x_values <- seq(from = 0, to = 25, by = 0.1)
+
+plot(x = x_values, 
+     y = dnorm(x_values, mean = 15, sd = 3),
+     bty = "n", 
+     las = 1,
+     type = "l",
+     col = viridis(1),
+     lwd = 2,
+     main = "PDF of N(15, 3) - Election result greens",
+     ylab = "f(x)",
+     xlab = "x in % of total votes"
+     )
+
+
+```
+
+3.2. What is the percentage of voters in your sample that thought the Greens will win less than 10%?
+
+```{r Exercise 3.2}
+
+pnorm(10, mean = 15, sd = 3)
+
+```
+
+Answer:
+
+4,7%
+
+3.3. How many voters in your sample thought that the Greens will win more than 15% but less than 20%?
+
+```{r Exercise 3.3}
+
+pnorm(20, mean = 15, sd = 3) - pnorm(15, mean = 15, sd = 3)
+
+```
+
+Answer:
+
+45,2%
+
+3.4. Last time, in the German federal election 2017, the Greens actually won around 9%. Is this value within the range of what 90% of the voters that are most optimistic about the success of the Greens think?
+
+```{r Exercise 3.4}
+
+1 - pnorm(9, mean = 15, sd = 3)
+
+```
+No 97% of the people thought that the greens will get more votes.
+
+## Part 4: Applied probability
+
+Just prior to the selection of the jury for O.J. Simpson's murder trial in 1995, a poll found that about 20% of the adult population believed Simpson was innocent. For illustration, take it as the true percentage of people who thought Simpson was innocent prior to jury selection.
+
+Assume that the 12 jurors were selected randomly and independently from the population (although this turned out not to be true).
+
+4.1. Find the probability that the jury had at least one member who believed in Simpson's innocence prior to jury selection.
+
+*Hint:* Define the Binomial(12, 0.2) random variable `X` to be the number of jurors believing in Simpson's innocence.
+
+```{r Exercise 4.1 Illustration}
+passengers  <- 0:12 # for x-axis
+
+plot(x = passengers, 
+     y = 1 - pbinom(q = passengers, size = 12, p = 0.2),
+     bty = "n",
+     las = 1,
+     pch = 19,
+     xlab = "Number of People voting for innocent",
+     ylab = "Probability",
+     main = "How many people will vote that he is innocent? ",
+     cex = 0.5, 
+     col = viridis(1),
+     frame = F
+     )
+
+```
+
+```{r Exercise 4.1}
+
+# p = 0.2
+
+# at least one member who believed in Simpson = 1 Member + 2 M + 3 M ... + 12M .
+# -> only 0 can be included
+
+1 - pbinom(q = 0, size = 12, p = 0.2)
+
+```
+
+4.2. Find the probability that the jury had at least two members who believed in Simpson's innocence.
+
+*Hint:* $P(X\geq2)=1-P(X\leq1)$, and $P(X\leq1)=P(X=0)+P(X=1).$
+
+```{r Exercise 4.2}
+
+1 - pbinom(q = 1, size = 12, p = 0.2)
+
+```
+
+4.3. Explain in two sentences what is the implication of random and independent selection process of jurors for our calculations. 
+
+Answer:
+
+The random selection of jurors means that there is a normal distribution with a mean of about 20% of the selected jurors voting "not guilty". 
+The independent variable means that the probability of juror a does not depend on the vote of juror b, which is not normally the case in a trial, so it is difficult to account for these influences. 
+
+

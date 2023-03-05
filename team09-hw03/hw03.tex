@@ -1,0 +1,319 @@
+% Options for packages loaded elsewhere
+\PassOptionsToPackage{unicode}{hyperref}
+\PassOptionsToPackage{hyphens}{url}
+%
+\documentclass[
+]{article}
+\usepackage{amsmath,amssymb}
+\usepackage{lmodern}
+\usepackage{iftex}
+\ifPDFTeX
+  \usepackage[T1]{fontenc}
+  \usepackage[utf8]{inputenc}
+  \usepackage{textcomp} % provide euro and other symbols
+\else % if luatex or xetex
+  \usepackage{unicode-math}
+  \defaultfontfeatures{Scale=MatchLowercase}
+  \defaultfontfeatures[\rmfamily]{Ligatures=TeX,Scale=1}
+\fi
+% Use upquote if available, for straight quotes in verbatim environments
+\IfFileExists{upquote.sty}{\usepackage{upquote}}{}
+\IfFileExists{microtype.sty}{% use microtype if available
+  \usepackage[]{microtype}
+  \UseMicrotypeSet[protrusion]{basicmath} % disable protrusion for tt fonts
+}{}
+\makeatletter
+\@ifundefined{KOMAClassName}{% if non-KOMA class
+  \IfFileExists{parskip.sty}{%
+    \usepackage{parskip}
+  }{% else
+    \setlength{\parindent}{0pt}
+    \setlength{\parskip}{6pt plus 2pt minus 1pt}}
+}{% if KOMA class
+  \KOMAoptions{parskip=half}}
+\makeatother
+\usepackage{xcolor}
+\IfFileExists{xurl.sty}{\usepackage{xurl}}{} % add URL line breaks if available
+\IfFileExists{bookmark.sty}{\usepackage{bookmark}}{\usepackage{hyperref}}
+\hypersetup{
+  pdftitle={Quantitative Methods in Political Science - Homework 3},
+  pdfauthor={Team member 1 (with percentage); Team member 2 (with percentage); Team member 3 (with percentage)},
+  hidelinks,
+  pdfcreator={LaTeX via pandoc}}
+\urlstyle{same} % disable monospaced font for URLs
+\usepackage[margin=1in]{geometry}
+\usepackage{color}
+\usepackage{fancyvrb}
+\newcommand{\VerbBar}{|}
+\newcommand{\VERB}{\Verb[commandchars=\\\{\}]}
+\DefineVerbatimEnvironment{Highlighting}{Verbatim}{commandchars=\\\{\}}
+% Add ',fontsize=\small' for more characters per line
+\usepackage{framed}
+\definecolor{shadecolor}{RGB}{248,248,248}
+\newenvironment{Shaded}{\begin{snugshade}}{\end{snugshade}}
+\newcommand{\AlertTok}[1]{\textcolor[rgb]{0.94,0.16,0.16}{#1}}
+\newcommand{\AnnotationTok}[1]{\textcolor[rgb]{0.56,0.35,0.01}{\textbf{\textit{#1}}}}
+\newcommand{\AttributeTok}[1]{\textcolor[rgb]{0.77,0.63,0.00}{#1}}
+\newcommand{\BaseNTok}[1]{\textcolor[rgb]{0.00,0.00,0.81}{#1}}
+\newcommand{\BuiltInTok}[1]{#1}
+\newcommand{\CharTok}[1]{\textcolor[rgb]{0.31,0.60,0.02}{#1}}
+\newcommand{\CommentTok}[1]{\textcolor[rgb]{0.56,0.35,0.01}{\textit{#1}}}
+\newcommand{\CommentVarTok}[1]{\textcolor[rgb]{0.56,0.35,0.01}{\textbf{\textit{#1}}}}
+\newcommand{\ConstantTok}[1]{\textcolor[rgb]{0.00,0.00,0.00}{#1}}
+\newcommand{\ControlFlowTok}[1]{\textcolor[rgb]{0.13,0.29,0.53}{\textbf{#1}}}
+\newcommand{\DataTypeTok}[1]{\textcolor[rgb]{0.13,0.29,0.53}{#1}}
+\newcommand{\DecValTok}[1]{\textcolor[rgb]{0.00,0.00,0.81}{#1}}
+\newcommand{\DocumentationTok}[1]{\textcolor[rgb]{0.56,0.35,0.01}{\textbf{\textit{#1}}}}
+\newcommand{\ErrorTok}[1]{\textcolor[rgb]{0.64,0.00,0.00}{\textbf{#1}}}
+\newcommand{\ExtensionTok}[1]{#1}
+\newcommand{\FloatTok}[1]{\textcolor[rgb]{0.00,0.00,0.81}{#1}}
+\newcommand{\FunctionTok}[1]{\textcolor[rgb]{0.00,0.00,0.00}{#1}}
+\newcommand{\ImportTok}[1]{#1}
+\newcommand{\InformationTok}[1]{\textcolor[rgb]{0.56,0.35,0.01}{\textbf{\textit{#1}}}}
+\newcommand{\KeywordTok}[1]{\textcolor[rgb]{0.13,0.29,0.53}{\textbf{#1}}}
+\newcommand{\NormalTok}[1]{#1}
+\newcommand{\OperatorTok}[1]{\textcolor[rgb]{0.81,0.36,0.00}{\textbf{#1}}}
+\newcommand{\OtherTok}[1]{\textcolor[rgb]{0.56,0.35,0.01}{#1}}
+\newcommand{\PreprocessorTok}[1]{\textcolor[rgb]{0.56,0.35,0.01}{\textit{#1}}}
+\newcommand{\RegionMarkerTok}[1]{#1}
+\newcommand{\SpecialCharTok}[1]{\textcolor[rgb]{0.00,0.00,0.00}{#1}}
+\newcommand{\SpecialStringTok}[1]{\textcolor[rgb]{0.31,0.60,0.02}{#1}}
+\newcommand{\StringTok}[1]{\textcolor[rgb]{0.31,0.60,0.02}{#1}}
+\newcommand{\VariableTok}[1]{\textcolor[rgb]{0.00,0.00,0.00}{#1}}
+\newcommand{\VerbatimStringTok}[1]{\textcolor[rgb]{0.31,0.60,0.02}{#1}}
+\newcommand{\WarningTok}[1]{\textcolor[rgb]{0.56,0.35,0.01}{\textbf{\textit{#1}}}}
+\usepackage{graphicx}
+\makeatletter
+\def\maxwidth{\ifdim\Gin@nat@width>\linewidth\linewidth\else\Gin@nat@width\fi}
+\def\maxheight{\ifdim\Gin@nat@height>\textheight\textheight\else\Gin@nat@height\fi}
+\makeatother
+% Scale images if necessary, so that they will not overflow the page
+% margins by default, and it is still possible to overwrite the defaults
+% using explicit options in \includegraphics[width, height, ...]{}
+\setkeys{Gin}{width=\maxwidth,height=\maxheight,keepaspectratio}
+% Set default figure placement to htbp
+\makeatletter
+\def\fps@figure{htbp}
+\makeatother
+\setlength{\emergencystretch}{3em} % prevent overfull lines
+\providecommand{\tightlist}{%
+  \setlength{\itemsep}{0pt}\setlength{\parskip}{0pt}}
+\setcounter{secnumdepth}{-\maxdimen} % remove section numbering
+\ifLuaTeX
+  \usepackage{selnolig}  % disable illegal ligatures
+\fi
+
+\title{Quantitative Methods in Political Science - Homework 3}
+\author{Team member 1 (with percentage) \and Team member 2 (with
+percentage) \and Team member 3 (with percentage)}
+\date{Due: October 5, 2021}
+
+\begin{document}
+\maketitle
+
+\begin{quote}
+\textbf{Note:} If you do not have any special reason, please do not load
+additional packages to solve this homework assignment. If you
+nevertheless do so, please indicate why you think this is necessary and
+add the package to the \texttt{p\_needed} vector in the setup chunk
+above.
+\end{quote}
+
+\hypertarget{part-1-definitions}{%
+\subsection{Part 1: Definitions}\label{part-1-definitions}}
+
+\textbf{1.1 What is a sampling distribution? If you consider a sampling
+distribution of the sample mean, what can you say about its shape,
+center, and spread?}
+
+Answer:
+
+\textbf{1.2 What is a confidence interval? Which assumptions does it
+rely on?}
+
+Answer:
+
+\hypertarget{part-2-confidence-intervals}{%
+\subsection{Part 2: Confidence
+Intervals}\label{part-2-confidence-intervals}}
+
+\emph{You collected a random sample of 50 students and asked them to
+rate chancellor Merkel on a scale from 1 to 5, with 5 being the highest
+rating. The mean score is \(2.3\) and the sample has a standard
+deviation of \(0.86\).}
+
+\textbf{2.1 Estimate Merkel's rating for the population of students and
+calculate a 95\% and a 99\% confidence interval analytically. Interpret
+these confidence intervals.}
+
+Answer:
+
+\textbf{2.2 Imagine you ran the survey again and had obtained the same
+information from a random sample of 150 students instead of 50.
+Calculate the 95\% confidence interval analytically and interpret this
+interval. How and why does it differ from the confidence interval in
+2.1?}
+
+Answer:
+
+\textbf{2.3 Consider the confidence interval in 2.2: If you ran the
+survey again, can you expect with 95\% confidence that the average
+rating of Merkel in this new sample will lie within the 95\% confidence
+interval from 2.2?}
+
+Answer:
+
+\textbf{2.4 Repeat 2.1 and 2.2, but this time construct the confidence
+interval using simulation. Plot the resulting distribution. Is it
+different from the analytical one? If so, how and why?}
+
+Answer:
+
+\hypertarget{part-3-smart-mannheim-students}{%
+\subsection{Part 3: Smart Mannheim
+Students}\label{part-3-smart-mannheim-students}}
+
+\emph{In the general population IQ is distributed normally with a mean
+of 100 and a standard deviation of 19. You take a simple random sample
+of 40 students in Mannheim and find that their mean IQ is 117.}
+
+\textbf{3.1 Calculate the standard error of the mean. What does this
+value tell you?}
+
+Answer:
+
+\textbf{3.2 Someone claims that on average, Mannheim students have a
+higher IQ than the general population. Given your data, do you agree?}
+
+Answer:
+
+\textbf{3.3 What is more likely: observing a sample with mean IQ of 117
+or observing an individual with an IQ of 117?}
+
+Answer:
+
+\textbf{3.4 Now suppose you got the IQ scores of 40 students who receive
+scholarships for academic excellence instead of a random sample. Does
+reporting the confidence intervals for the mean IQ address the problem
+of bias in sampling?}
+
+Answer:
+
+\textbf{3.5 Suppose that, based on a different sample, 95\% confidence
+interval for the mean IQ of Mannheim students was calculated as (109,
+125). How would you evaluate the following interpretations of this
+confidence interval? Say whether you think the interpretation is correct
+or not and explain why you think so.}
+
+\begin{quote}
+\emph{95\% of the time the mean IQ of Mannheim students in this sample
+is between 109 and 125, if we were to draw repeated samples.}
+\end{quote}
+
+Answer:
+
+\begin{quote}
+\emph{95\% of all students in Mannheim have IQ between 109 and 125.}
+\end{quote}
+
+Answer:
+
+\begin{quote}
+\emph{We are 95\% confident that the mean IQ of all students in Mannheim
+is between 109 and 125.}
+\end{quote}
+
+Answer:
+
+\begin{quote}
+\emph{We are 95\% confident that the mean IQ of all students in this
+sample is between 109 and 125.}
+\end{quote}
+
+Answer:
+
+\begin{quote}
+\emph{If we repeated the experiment a large number of times, there is a
+95\% chance that the mean IQ of Mannheim students is between 109 and 125
+in each time.}
+\end{quote}
+
+Answer:
+
+\hypertarget{part-4-proportions}{%
+\subsection{Part 4: Proportions}\label{part-4-proportions}}
+
+\emph{Suppose that a military dictator in an unnamed country holds a
+plebiscite (a yes/no vote of confidence) and claims that he was
+supported by 68\% of the voters. A human rights group suspects foul play
+and hires you to test the validity of the dictator's claim. You have a
+budget that allows you to randomly sample 180 voters from the country.
+You collect your sample of 180, and you find that 95 people actually
+voted yes.}
+
+\textbf{4.1 You decide to have a closer look at the sample and explore
+if there are significant differences between men and women support rates
+of the dictator. In your sample, 80 respondents are female and 45\% of
+women reported voting \emph{yes}.}
+
+\textbf{4.1.1 What is the share of men voting for the dictator?}
+
+Answer:
+
+\textbf{4.1.2 Calculate the difference between proportions of supporters
+among men and women and 95\% confidence intervals for this difference
+using simulation. What is your conclusion: do men, on average, tend to
+support the dictator more than women?}
+
+Answer:
+
+\textbf{4.1.3 Calculate the standard error of the difference from
+simulation. Compare this standard error for proportion difference with
+analytical one:}
+
+\(SE = \sqrt{\frac{p_1(1-p_1)}{n_1} + \frac{p_2(1-p_2)}{n_2}}\)
+
+\textbf{4.2 (Optional) Given the information from the sample, what is
+the probability that at least 68\% of the population voted yes?}
+
+\textbf{4.3 (Optional) What is the probability that a majority of people
+in the country support the dictator?}
+
+\hypertarget{r-code}{%
+\section{R code}\label{r-code}}
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\CommentTok{\# The first line sets an option for the final document that can be produced from}
+\CommentTok{\# the .Rmd file. Don\textquotesingle{}t worry about it.}
+\NormalTok{knitr}\SpecialCharTok{::}\NormalTok{opts\_chunk}\SpecialCharTok{$}\FunctionTok{set}\NormalTok{(}\AttributeTok{echo =} \ConstantTok{TRUE}\NormalTok{)}
+
+\CommentTok{\# The next bit (lines 22{-}43) is quite powerful and useful. }
+\CommentTok{\# First you define which packages you need for your analysis and assign it to }
+\CommentTok{\# the p\_needed object. }
+\NormalTok{p\_needed }\OtherTok{\textless{}{-}} \FunctionTok{c}\NormalTok{(}\StringTok{"viridis"}\NormalTok{) }\CommentTok{\# add your packages here }
+
+\CommentTok{\# Now you check which packages are already installed on your computer.}
+\CommentTok{\# The function installed.packages() returns a vector with all the installed }
+\CommentTok{\# packages.}
+\NormalTok{packages }\OtherTok{\textless{}{-}} \FunctionTok{rownames}\NormalTok{(}\FunctionTok{installed.packages}\NormalTok{())}
+
+\CommentTok{\# Then you check which of the packages you need are not installed on your }
+\CommentTok{\# computer yet. Essentially you compare the vector p\_needed with the vector}
+\CommentTok{\# packages. The result of this comparison is assigned to p\_to\_install.}
+\NormalTok{p\_to\_install }\OtherTok{\textless{}{-}}\NormalTok{ p\_needed[}\SpecialCharTok{!}\NormalTok{(p\_needed }\SpecialCharTok{\%in\%}\NormalTok{ packages)]}
+
+\CommentTok{\# If at least one element is in p\_to\_install you then install those missing}
+\CommentTok{\# packages.}
+\ControlFlowTok{if}\NormalTok{ (}\FunctionTok{length}\NormalTok{(p\_to\_install) }\SpecialCharTok{\textgreater{}} \DecValTok{0}\NormalTok{) \{}
+  \FunctionTok{install.packages}\NormalTok{(p\_to\_install)}
+\NormalTok{\}}
+\CommentTok{\# Now that all packages are installed on the computer, you can load them for}
+\CommentTok{\# this project. Additionally the expression returns whether the packages were}
+\CommentTok{\# successfully loaded.}
+\FunctionTok{sapply}\NormalTok{(p\_needed, require, }\AttributeTok{character.only =} \ConstantTok{TRUE}\NormalTok{)}
+\end{Highlighting}
+\end{Shaded}
+
+
+\end{document}

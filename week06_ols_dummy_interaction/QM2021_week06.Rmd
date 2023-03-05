@@ -1,0 +1,964 @@
+---
+title: "QM 2021 Week 6: Hypothesis Testing, Dummies, and Interactions"
+author: 
+  - "Oliver Rittmann"
+  - "Viktoriia Semenova"
+  - "David Grundmanns"
+date: "October 14 | 18 | 19, 2021"
+output:
+  html_document:
+    toc: yes
+    number_sections: yes
+    toc_float: yes
+    highlight: tango
+    css: css/lab.css
+    self_contained: yes
+  pdf_document:
+    toc: yes
+bibliography: citations.bib # this adds a bibliography file from the repo
+biblio-style: apsr # this selects the style 
+---
+
+------------------------------------------------------------------------
+
+# Today we will learn {.unnumbered}
+
+1.  Classical Hypothesis Testing
+
+    -   Using t-values
+    -   Using p-values
+    -   Compare this to inference with CIs
+
+2.  How to model and interpret interactions with dummies
+
+------------------------------------------------------------------------
+
+```{r setup, include=FALSE}
+# The first line sets an option for the final document that can be produced from
+# the .Rmd file. Don't worry about it.
+knitr::opts_chunk$set(
+  echo = TRUE,
+  attr.output = 'style="max-height: 200px;"'
+  # collapse = TRUE
+)
+
+# The next bit is quite powerful and useful.
+# First you define which packages you need for your analysis and assign it to
+# the p_needed object.
+p_needed <-
+  c("viridis", # we will use magma palette this time 
+    "dplyr", # for preprocessing 
+    "broom", # for tidy model output 
+    "dagitty", # for the DAG in appendix
+    "ggplot2",
+    "scales",
+    "equatiomatic" # to extract regression equations from models  
+    )
+
+# Now you check which packages are already installed on your computer.
+# The function installed.packages() returns a vector with all the installed
+# packages.
+packages <- rownames(installed.packages())
+
+# Then you check which of the packages you need are not installed on your
+# computer yet. Essentially you compare the vector p_needed with the vector
+# packages. The result of this comparison is assigned to p_to_install.
+p_to_install <- p_needed[!(p_needed %in% packages)]
+# If at least one element is in p_to_install you then install those missing
+# packages.
+if (length(p_to_install) > 0) {
+  install.packages(p_to_install)
+}
+
+# Now that all packages are installed on the computer, you can load them for
+# this project. Additionally the expression returns whether the packages were
+# successfully loaded.
+sapply(p_needed, require, character.only = TRUE)
+
+# This is an option for stargazer tables
+# It automatically adapts the output to html or latex,
+# depending on whether we want a html or pdf file
+stargazer_opt <- ifelse(knitr::is_latex_output(), "latex", "html")
+```
+
+# Our Dataset: Gender Gap in Payment
+
+Today we will be working with the the example from the lecture, and we will explore the relationship between individual's education and earnings. The data we are using are simulated.
+
+```{r load-data}
+dat1 <- read.csv("raw-data/income_fake_data.csv")
+
+glimpse(dat1)
+head(dat1)
+```
+
+## Preprocessing
+
+The `gender` variable is not quite in the format we want to use. Let's build the binary variable (aka dummy) `female`, which is 1 if `gender` is female and 0 if `gender` is male.
+
+```{r create-dummy}
+# we can do this with built-in ifelse statement, but we'll need to nest two
+dat1$female <- ifelse(dat1$gender == "female", 1,
+  ifelse(dat1$gender == "male", 0, NA)
+)
+
+# dplyr has a case_when function for such purposes
+# you can use the function that is more intuitive
+female <- case_when(
+  dat1$gender == "female" ~ 1,
+  dat1$gender == "male" ~ 0
+  # all other values are NAs as not specified
+)
+
+# compare the result
+all(dat1$female == female)
+
+table(dat1$female) #indicates varialbe
+```
+
+## Running the model {.tabset}
+
+Very good. Now we want to run a model to investigate the relationship between education and income. Our hypothesis is that education positively affects income. We will start with a very simple model first:
+
+$$
+\text{Income}_i = \hat\beta_0 + \hat\beta_{1} \text{Education}_i
+$$
+
+```{r basic-model}
+m1 <- lm(income ~ education, data = dat1)
+```
+
+Let's have a look at the model summary:
+
+```{r basic-model-summary}
+summary(m1)
+```
+
+And since having a picture is almost always a good idea, let's plot this:
+
+```{r}
+table(dat1$education)
+```
+
+
+### Base R {-}
+
+```{r basic-model-plot-base}
+plot(
+  x = jitter(dat1$education), # why use jitter here?
+  y = dat1$income,
+  ylim = c(20000, 40000),
+  bty = "n",
+  xlab = "Education (years)",
+  ylab = "Income (USD '000)", # original scale is in USD
+  main = "Relationship between Education and Income",
+  pch = 19,
+  axes = F, # we hide default axes
+  col = magma(1, alpha = 0.75) # another colorblind-friendly palette
+)
+
+# And add the regression line
+abline(
+  a = (coef(m1)[1]),
+  b = (coef(m1)[2]),
+  col = magma(1, alpha = 0.75),
+  lwd = 2
+)
+
+axis(1) # we add back x-axis labels
+axis(2, # add back y-axis
+  at = seq(20000, 40000, by = 5000),
+  labels = seq(20, 40, by = 5), # manually specify the labels
+  las = 1 # rotate the numbers
+)
+```
+
+> **How would you interpret the coefficients?**
+
+
+The regression equation may help: `r extract_eq(m1, intercept = "\\hat{\\beta}_0", use_coefs = TRUE, wrap = TRUE, greek = "\\hat{\\beta}", raw_tex = T)`
+
+<!-- This function comes from equatiomatic package. You can extract the regression equations in Latex from the model you specify. The equations won't always look perfect, but one way to use this package is to extract the equation, edit it, and paste the Latex code directly in the math mode (see more examples of this below). We have also used inline code here, instead of using a separate chunk. -->
+
+### ggplot2 {-}
+
+```{r basic-model-plot-ggplot2, message=FALSE, warning=FALSE}
+ggplot(data = dat1, aes(education, income)) +
+  geom_point(
+    position = position_jitter(w = 0.15, h = 0), # only shift along x axis
+    color = magma(1, alpha = 0.75)
+  ) +
+  geom_smooth( 
+    method = "lm", # add regression line
+    se = FALSE,
+    color = magma(1, alpha = 0.75)
+  ) +
+  theme_classic() +
+  labs(
+    x = "Education (years)",
+    y = "Income",
+    title = "Relationship between Education and Income"
+  ) +
+  scale_y_continuous(
+    labels = scales::dollar, # nice y labels
+    limits = c(20000, 40000)
+    ) 
+```
+
+> **How would you interpret the coefficients?**
+
+
+The regression equation may help: `r extract_eq(m1, intercept = "\\hat{\\beta}_0", use_coefs = TRUE, wrap = TRUE, greek = "\\hat{\\beta}", raw_tex = T)`
+
+<!-- This function comes from equatiomatic package. You can extract the regression equations in Latex from the model you specify. The equations won't always look perfect, but one way to use this package is to extract the equation, edit it, and paste the Latex code directly in the math mode (see more examples of this below). We have also used inline code here, instead of using a separate chunk. -->
+
+# Statistical Inference for Regression Coefficents
+
+## Standard Error of a Slope Coeffcient
+
+For any approach for statistical inference we would undertake, we will require the standard errors of our coefficients. We will start work with the slope coefficient here. The formula that we have below comes from the slides:
+
+$$
+SE(\hat\beta_1)= \sqrt{Var(\hat{\beta_1})}, \qquad Var(\hat{\beta_1}) = \frac{\overbrace{\hat\sigma^2}^{\text{estimated regression error}\\\text{a.k.a. residual variance}}}{\underbrace{\sum_{i=1}^{n}(x_i - \bar x)^2}_{\text{sum of squares of } x}}
+$$
+
+And for the residual variance, we need the model *residuals*, i.e., estimated error terms, and the *degrees of freedom*:
+
+$$
+\hat\sigma^2 = \frac{\overbrace{\sum_{i=1}^{n}\hat{e}_i^2}^{\text{sum of squared residuals}}}{
+\underbrace{
+\underbrace{n}_{\text{number of}\\\text{observations}}-\underbrace{k}_{\text{number of}\\\text{covariates}} - 1
+}_{\text{degrees of freedom}}
+}
+$$
+
+Let's implement these formulas in R:
+
+```{r slope-se-by-hand}
+# start with residual variance components:
+# get n (sample size) and k (number of covariates + 1, i.e. slopes + intercept)
+n <- nrow(dat1) 
+k <- length(coef(m1))
+
+# calculate the estimate of sigma^2 hat
+sigma_sq_hat <- sum(residuals(m1)^2) / (n - k) # k already includes (- 1) part!
+# already 2
+sqrt(sigma_sq_hat)
+
+# get the sum of squares of x
+denominator <- sum((dat1$education - mean(dat1$education))^2)
+
+# calculate the slope SE
+se <- sqrt(sigma_sq_hat / denominator)
+
+se #of slope coefficient
+
+# compare to built-in function
+summary(m1)
+```
+
+We can write our own function to calculate standard errors of regression coefficients.
+
+```{r slope-se-function}
+se_slope <- function(lm, x) {
+  n <- length(x)
+  k <- length(coef(lm)) # !gives covariance and intersept
+  sigma_est <- sqrt(sum(residuals(lm)^2) / (n - k)) # k includes covariates + 1
+  x_se <- sqrt(sum((x - mean(x))^2))
+  return(sigma_est / x_se)
+}
+
+se <- se_slope(m1, dat1$education) 
+se
+```
+
+## Confidence Intervals
+
+Now that we have the standard error, we can move to calculating the confidence interval. As you learned in the lecture, we could assume normal sampling distribution for the parameter, i.e. use *normal approximation*. This works well when the number of observations is large. But if not, we may need to use a $t$-distribution. Let's look at both of them. 
+
+### Normal Approximation
+
+This approach would be exactly what we were doing before, when calculating the confidence intervals for the mean. Let's get 95% confidence interval for the slope in our model:
+
+```{r slope-ci-normal}
+# point estimate +/- z-score * SE
+coef(m1)[2] + qnorm(c(0.025, 0.975), 0, 1) * se
+
+# FYI, we can also write it as follows: #mean directly in normal distribution
+qnorm(c(0.025, 0.975), coef(m1)[2], se)
+
+# qnorm part gives us z-scores, i.e. quantiles from a standard normal N(0,1)
+# we are basically reverting the standardization
+qnorm(c(0.025, 0.975), 0, 1) * se
+qnorm(c(0.025, 0.975), 0, se)
+
+# and shift the distribution to one side
+coef(m1)[2] + qnorm(c(0.025, 0.975), 0, 1)
+qnorm(c(0.025, 0.975), coef(m1)[2], 1)
+```
+
+> **How would you interpret this?**
+
+Remember, XX% of random samples of size $n$ are expected to produce XX% confidence intervals that contain the true population parameter.
+
+
+### Using t-distribution
+
+Since we cannot directly calculate the standard error for $\hat \beta$, and we use the sample standard deviation $\hat \sigma$ instead of the population standard deviation $\sigma$. This strategy tends to work well when we have a lot of data and can estimate $\sigma$ using $\hat \sigma$ accurately. However, the estimate is less precise with smaller samples, and this leads to problems when using the normal distribution. Instead, we can use the $t$-distribution.
+
+The $t$-distribution is always centered at zero and has a single parameter: degrees of freedom. The **degrees of freedom** ($df$) describe the precise form of the bell-shaped $t$-distribution. When we have more observations, the degrees of freedom will be larger and the $t$-distribution will look more like the standard normal distribution $\mathcal{N}(0,1)$; when the degrees of freedom is about 30 or more, the $t$-distribution is nearly indistinguishable from $\mathcal{N}(0,1)$, as you can spot from the plot.
+
+```{r t-distribution-base, fig.dim=c(6, 4), fig.align='center', echo=FALSE}
+# plot the normal distribution
+plot(
+  x = seq(-5, 5, by = 0.1),
+  y = dnorm(seq(-5, 5, by = 0.1)),
+  ylab = "",
+  xlab = "",
+  frame.plot = FALSE,
+  axes = F,
+  col = magma(4, end = 0.8, alpha = 1)[1],
+  type = "l"
+)
+
+axis(1)
+
+# add the t-distribution with df = 1
+lines(
+  x = seq(-5, 5, by = 0.1),
+  y = dt(seq(-5, 5, by = 0.1), df = 1),
+  lwd = 2,
+  col = magma(4, end = 0.8, alpha = 0.85)[2]
+)
+
+# add the t-distribution with df = 5
+lines(
+  x = seq(-5, 5, by = 0.1),
+  y = dt(seq(-5, 5, by = 0.1), df = 5),
+  lwd = 2,
+  col = magma(4, end = 0.8, alpha = 0.75)[3]
+)
+
+# add the t-distribution with df = 30
+lines(
+  x = seq(-5, 5, by = 0.1),
+  y = dt(seq(-5, 5, by = 0.1), df = 30),
+  lwd = 2,
+  col = magma(4, end = 0.8, alpha = 0.65)[4]
+)
+
+legend("topright",
+  legend = c("N(0,1)", "t(df = 1)", "t(df = 5)", "t(df = 30)"),
+  pch = 19,
+  lwd = 2,
+  col = magma(4, end = 0.8),
+  bty = "n"
+)
+```
+
+What we see from this plot is that $t$-distribution with smaller degrees of freedom has thicker tails than a standard normal distribution. Thicker tails indicate that more data points lie further from the center and closer to more extreme values.
+
+> **How should the fact that $t$-distribution has thinker tails affect the width of the confidence interval, when we use t-values instead of z-scores?**
+
+```{r slope-ci-t}
+# degrees of freedom
+
+df <- nrow(dat1) - length(coef(m1))
+
+coef(m1)[2] + qt(c(0.025, 0.975), df = df) * se
+```
+
+## Hypothesis Testing
+
+We are also using $t$-distribution for hypothesis testing even more explicitly. In this framework, instead of focusing on uncertainty about our estimate more generally, like with a confidence interval, we specify a null hypothesis and an alternative hypothesis. In other words, we look at the differences not from standpoint of having our estimates and a plausible range of values for it, but rather, we imagine what would the world look like if the null hypothesis is true. And we are trying to find if what we observed, "fits well" into the world where the null hypothesis is true.
+
+For regression coefficients, we would usually want to know if the estimated coefficient is different from zero, i.e., if there is some effect of the variable on another one. Hence this is the value $\beta^{*}_{edu}$ for comparison:
+
+-   $H_0: \beta^{*}_{edu} = 0$ 
+-   $H_A: \beta^{*}_{edu} \neq 0$
+
+With such a setup, we will be looking at the whether the coefficient we estimated could result from data that were generated under the assumption that null hypothesis is true (so there was no effect of education on income).
+
+### Types of alternative hypotheses
+
+- One-sided (one tailed) alternatives: The parameter is hypothesized to be less than or greater than the null value, < or >
+
+- Two-sided (two tailed) alternatives: The parameter is hypothesized to be not equal to the null value, $\neq$
+    - Calculated as two times the tail area beyond the observed sample statistic
+    - More objective, and hence more widely preferred
+    
+
+### t-values by hand
+
+A test statistic is constructed as:
+
+$$
+t^* = \frac{\hat\beta_{edu} - \beta_{edu}^*}{SE(\hat\beta_{edu})} = \frac{\hat\beta_{edu} - 0}{SE(\hat\beta_{edu})} =\frac{\hat\beta_{edu}}{SE(\hat\beta_{edu})}
+$$
+
+We can now translate it to R:
+
+```{r t-values}
+# we use our standard error function from above to get standard errors
+se_educ <- se_slope(m1, dat1$education)
+t_educ_0 <- coef(m1)[2] / se_educ
+t_educ_0
+```
+
+To test the hypothesis using the $t$-value, we need to compare $t$-values to a *critical value*. This critical value depends on our (predefined) level of significance. If our level of significance $\alpha=95\%$, here's what we do:
+
+```{r hypothesis-test-t-value}
+# test statistic, t-value, should be either larger than:
+qt(0.975, df = 98)
+
+# or smaller than:
+qt(0.025, df = 98)
+
+# in short, we can reject H_0 if:
+abs(t_educ_0) > abs(qt(0.025, df = 98)) 
+# also abs(t_educ_0) > qt(0.975, df = 98)
+```
+
+> **The null hypothesis here is that there is no effect of education. What would you would have to do if you wanted to test against a different** $H_0$?
+
+![Illustration for t-values and p-values](images/t-p-values.png)
+
+### p-values by hand
+
+You may recall that yet another way to do statistical inference is by computing p-values. The idea behind p-values is: Given the observed $t^*$, what is the smallest significance level at which the null hypothesis would be rejected? So unlike with the t-values, where we compare the $t^*$ with pre-defined quantiles, which depended on the confidence level, we are calculating the cumulative probabilities here and  look at whether this cumulative probability is above a certain threshold. This threshold is where the predefined significance level jumps in. 
+
+$$
+p = Pr({|t_{n-k-1}|}>{|t^*|}) = 2 \times Pr({t_{n-k-1}}>{|t^*|})
+$$
+
+And how do we find the probability of observed or more extreme outcome given that the null hypothesis is true? We do this with the distribution function with `p`, probability. The absolute value $|t^*|$ will be a positive number, and we want to find the cumulative probability of $t_{n-k-1}$ being more extreme. Knowing that functions in R by default look for $Pr(X \leq x)$, we need to be a little creative when calculating the probabilities manually:
+
+```{r p-values}
+# what does this show?
+pt(15.40206, df = 98)
+
+# what will this value give us?
+pt(15.40206, df = 98, lower.tail = F)
+
+# what about this?
+pt(abs(-15.40206), df = 98)
+
+# and this?
+pt(-abs(15.40206), df = 98)
+
+# why are we multiplying by 2?
+2 * pt(-15.40206, df = 98)
+
+# our p-values
+p_m2 <- 2 * pt(-abs(15.40206), df = 98)
+p_m2
+```
+
+The interpretation is as follows:
+
+- If p-value $<\alpha$, reject $H_0$ in favor of $H_A$: The data provide convincing evidence for the alternative hypothesis.
+
+- If p-value $>\alpha$, fail to reject $H_0$ in favor of $H_A$: The data do not provide convincing evidence for the alternative hypothesis
+
+
+## Built-in Functions in R
+
+As usually, R has built in functions for these essential calculations. `summary` will give you these numbers from an `lm` object. However, in case we need to extract certain values from the coefficients, we can do this without copying the numbers from the `summary` output by hand. Avoiding such manual copying is more flexible and less error prone (thus, better coding practice). For instance, `tidy` function from `broom` package will generate a nice `data.frame`-kind object, from which we can easily extract the numbers. Note that these p- and t-values only test against zero.
+
+```{r built-in-functions}
+# summary will give us all these numbers
+summary(m1)
+
+# and tidy() from broom package will give a nice data.frame with these numbers
+coefs <- tidy(m1, conf.int = T, conf.level = 0.95)
+coefs # does tidy() use normal approximation or t-values?
+```
+
+And this way, we can also refer to the objects we already created and say that, for instance, the we have found the t-value for *education* coefficient to be `r coefs$statistic[2]`. Yet we can see that this number is very long and we may want to cut it to 3 digits by using `format` function: `r format(coefs$statistic[2], digits = 3)`.
+
+------------------------------------------------------------------------
+
+# Dummies and Interactions
+
+## Model with Separate Means {.tabset}
+
+We have already explored the relationship between education and earnings, but to better understand the idea behind interactions, let's take a step back. Let's estimate a regression with only one predictor - the `female` dummy variable.
+
+$$
+\text{Income}_i = \hat\beta_0 + \hat\beta_1 \text{Female}_i
+$$
+
+```{r indicator-model}
+# to make plotting easier, let's transform USD to USD ('000)
+dat1$income <- dat1$income / 1000
+
+m2 <- lm(income ~ female, dat1)
+summary(m2)
+```
+
+> **How would we interpret the coefficients?**
+
+$$
+\text{Income}_i = \underbrace{\hat\beta_0}_{\text{Expected income}\\\text{of males}} + \underbrace{\hat\beta_1}_{\text{Difference}\\\text{to females}} \text{Female}_i
+$$
+
+As usually, let's see what is going on. We'll add the effects of gender onto the scatterplot of income and education. Though education is not in the model, this will help us in understanding the interactions later.
+
+### Base R {-}
+
+```{r indicator-model-plot-base}
+# specify the two colors we'll use in plots
+col_vec <- case_when(
+  dat1$female == 1 ~ magma(2, alpha = 0.75, end = 0.7)[1],
+  dat1$female == 0 ~ magma(2, alpha = 0.75, end = 0.7)[2]
+)
+
+# main plot
+plot(
+  x = jitter(dat1$education),
+  y = dat1$income,
+  ylim = c(20, 40),
+  bty = "n",
+  las = 1,
+  main = "The Effect of Gender on Income (Intercept Shift)",
+  xlab = "Education (years)",
+  ylab = "Income (USD '000)",
+  pch = 19,
+  col = col_vec
+)
+
+# add the regression lines
+# male (baseline category)
+abline(
+  h = (coef(m2)[1]),
+  col = col_vec[1],
+  lwd = 3
+)
+# female
+abline(
+  h = (coef(m2)[1] + coef(m2)[2]),
+  col = col_vec[2],
+  lwd = 3
+)
+
+# add a legend
+legend("topleft",
+  legend = c("Male", "Female"),
+  pch = 19,
+  lwd = 2,
+  col = col_vec,
+  bty = "n"
+)
+```
+
+### ggplot2 {-}
+
+```{r indicator-model-plot-ggplot2, message=FALSE, warning=FALSE}
+ggplot(
+  data = dat1,
+  aes(x = education, y = income, color = gender)
+) +
+  geom_point(
+    position = position_jitter(w = 0.15, h = 0), # only shift along x axis
+  ) +
+  geom_hline(
+    yintercept = m2$coefficients[1],
+    color = magma(2, end = 0.7)[1]
+  ) +
+  geom_hline(
+    yintercept = sum(m2$coefficients),
+    color = magma(2, end = 0.7)[2]
+  ) +
+  theme_classic() +
+  labs(
+    x = "Education (years)",
+    y = "Income (USD '000)",
+    color = "",
+    title = "The Effect of Gender on Income",
+    subtitle = "Intercept Shift"
+  ) +
+  scale_y_continuous(
+    limits = c(20, 40)
+  ) +
+  scale_color_manual(values = magma(2, direction = -1, end = 0.7)) +
+  theme(legend.position = "top")
+```
+
+## Model with Average Education Effect {.tabset}
+
+Now let's add the *education* variable back in, but let's assume that the effect of education is the same for both subgroups - males and females:
+
+$$
+\text{Income}_i = \hat\beta_0 + \hat\beta_1 \text{Female}_i + \hat\beta_2 \text{Education}_i 
+$$
+
+We can run the model now:
+
+```{r multiple-regression-model}
+m3 <- lm(income ~ education + female, dat1)
+summary(m3)
+```
+
+And plot the regression line, now with the slope coefficient:
+
+### Base R {-}
+
+```{r multiple-regression-model-plot-base}
+plot(
+  x = jitter(dat1$education),
+  y = dat1$income,
+  ylim = c(20, 40),
+  bty = "n",
+  las = 1,
+  main = "The Effect of Education and Gender on Income\n(Intercept Shift with Same Slope)",
+  xlab = "Education (years)",
+  ylab = "Income (USD '000)",
+  pch = 19,
+  col = col_vec
+)
+
+# And finally add the regression lines.
+# for the baseline category, males
+abline(
+  a = (coef(m3)[1]),
+  b = (coef(m3)[2]),
+  col = col_vec[1],
+  lwd = 3
+)
+# for the other category, females
+abline(
+  a = (coef(m3)[1] + coef(m3)[3]),
+  b = (coef(m3)[2]),
+  col = col_vec[2],
+  lwd = 3
+)
+
+# add a legend
+legend("topleft",
+  legend = c("Male", "Female"),
+  pch = 19,
+  lwd = 2,
+  col = col_vec,
+  bty = "n"
+)
+```
+
+> **How would we interpret the coefficients?**
+
+$$
+\text{Income}_i = \underbrace{\hat\beta_0}_{\text{Expected income}\\\text{of males with no}\\\text{education}} + \underbrace{\hat\beta_1}_{\text{Difference}\\\text{in income}\\\text{to females}} \text{Female}_i + \underbrace{\hat\beta_2}_{\text{Effect of each}\\\text{additional year}\\\text{of education}\\\text{for both males}\\\text{and females}} \text{Education}_i 
+$$
+
+### ggplot2 {-}
+
+```{r multiple-regression-model-plot-ggplot2, message=FALSE, warning=FALSE}
+ggplot(
+  data = dat1,
+  aes(x = education, y = income, color = gender)
+) +
+  geom_point(
+    position = position_jitter(w = 0.15, h = 0), # only shift along x axis
+  ) +
+  geom_line(mapping=aes(y=predict(m3))) +
+  theme_classic() +
+  labs(
+    x = "Education (years)",
+    y = "Income (USD '000)",
+    color = "",
+    title = "The Effect of Education and Gender on Income",
+    subtitle = "Intercept Shift with Same Slope"
+  ) +
+  scale_y_continuous(
+    limits = c(20, 40)
+  ) +
+  scale_color_manual(values = magma(2, direction = -1, end = 0.7)) +
+  theme(legend.position = "top")
+```
+
+> **How would we interpret the coefficients?**
+
+$$
+\text{Income}_i = \underbrace{\hat\beta_0}_{\text{Expected income}\\\text{of males with no}\\\text{education}} + \underbrace{\hat\beta_1}_{\text{Difference}\\\text{in income}\\\text{to females}} \text{Female}_i + \underbrace{\hat\beta_2}_{\text{Effect of each}\\\text{additional year}\\\text{of education}\\\text{for both males}\\\text{and females}} \text{Education}_i 
+$$
+
+## Heterogeneous Effect of Education
+
+What if females are more efficient in applying education? In other words: A shift in the intercept may not be sufficient to explain differences between men and women and their income. Rather, we may want to model different effect of education for these groups.
+
+For heterogeneous effects, we specify our interaction model [@brambor_understanding_2006]. Note that the variable that alters the effect of another variable, is also called a *moderator* (people sometimes mix up mediators (see previous lab) and moderators, so be careful with using the term).
+
+$$
+\text{Income}_i = \hat\beta_0 + \hat\beta_1 \text{Female}_i + \hat\beta_2 \text{Education}_i +  \hat\beta_3 \text{Female}_i \times \text{Education}_i
+$$
+
+The syntax is very straightforward:
+
+```{r interation-model}
+m4 <- lm(income ~ female + education + education * female, # * includes interaction
+  data = dat1
+)
+```
+
+But interpretation of the coefficients may get a little tricky:
+
+$$
+\text{Income}_i = \underbrace{\hat\beta_0}_{\text{Expected income}\\\text{of males with no}\\\text{education}} + \underbrace{\hat\beta_1}_{\text{Difference}\\\text{in income}\\\text{to females}} \text{Female}_i + \underbrace{\hat\beta_2}_{\text{Effect of each}\\\text{additional year}\\\text{of education}\\\text{for males}} \text{Education}_i +  \underbrace{\hat\beta_3}_{\text{Difference in}\\\text{effect of education}\\\text{between males}\\
+\text{and females}} \text{Female}_i \times \text{Education}_i
+$$
+
+We can thus see that if we only interested in prediction of income for males, the model would reduce to:
+
+$$
+\text{Income}_i = \hat\beta_0 + \hat\beta_1 \times 0 + \hat\beta_2 \text{Education}_i +  \hat\beta_3 0 \times \text{Education}_i \\
+\text{Income}_i = \underbrace{\hat\beta_0}_{\text{Male intercept}} + \underbrace{\hat\beta_2}_{\text{Effect of}\\\text{education}\\ \text{for men}} \text{Education}_i 
+$$
+
+And for females, the coefficients will be:
+
+$$
+\text{Income}_i = \hat\beta_0 + \hat\beta_1 \times 1 + \hat\beta_2 \text{Education}_i +  \hat\beta_3 1 \times \text{Education}_i\\
+\text{Income}_i = \underbrace{\hat\beta_0 + \hat\beta_1}_{\text{Female intercept}} + \underbrace{(\hat\beta_2 +\hat\beta_3)}_{\text{Effect of}\\\text{education}\\ \text{for women}} \text{Education}_i 
+$$
+
+Let's now look at the exact coefficients we estimated:
+
+```{r interation-model-coefficients}
+coef(m4)
+```
+
+> **How would we interpret the coefficients?**
+
+### Causal interaction vs. effect modification
+
+Note that statistical models by themselves are not distinguishing between these two cases:
+
+-   the effect of *education* on *income* differs between men and women
+-   the effect *gender* on *income* differs across the levels of education
+
+Mathematically, you can interpret the coefficients either way. However, the choice of control variables you include in the model would likely differ, depending on whether you are interested, primarily, in the effect of *education* or in the effect of *gender* on the *income*. It thus will make sense to interpret the interaction coefficients in line with your causal story and your selected control variables. @keele_causal_2021 discuss this issue in more detail.
+
+### More Details on Plotting Regression Lines {.tabset}
+
+Again, we want to add our predictions as separate regression lines to a plot:
+
+#### Base R {-}
+
+```{r interation-model-plot-base}
+# Scatterplot with dots colored according to female/male
+plot(
+  x = jitter(dat1$education),
+  y = dat1$income,
+  ylim = c(20, 40),
+  bty = "n",
+  las = 1,
+  main = "Heterogeneous Effect of Education on Income",
+  xlab = "Education (years)",
+  ylab = "Income (USD '000)",
+  pch = 19,
+  col = col_vec
+)
+
+# Add a legend
+legend("topleft",
+  legend = c("Male", "Female"),
+  pch = 19,
+  lwd = 2,
+  col = col_vec,
+  bty = "n"
+)
+
+# We use the clip command to restrict the plotting area
+# to x-values supported by the data
+clip(
+  x1 = min(jitter(dat1$education)[dat1$female == 0]), #bounds for line on x-axis
+  x2 = max(jitter(dat1$education)[dat1$female == 0]), #bounds for line on x-axis
+  y1 = -100, #bounds for line on y-axis 
+  y2 = 100 #bounds for line on y-axis 
+)
+abline(
+  a = (coef(m4)[1]), # beta_0
+  b = (coef(m4)[3]), # beta_2
+  lwd = 3,
+  col = col_vec[1]
+)
+
+# Second, for women (this will be a bit tricky):
+# Only plot the line for x-values supported by the data
+clip(
+  x1 = min(jitter(dat1$education)[dat1$female == 1]),
+  x2 = max(jitter(dat1$education)[dat1$female == 1]),
+  y1 = -100,
+  y2 = 100
+)
+abline(
+  a = (coef(m4)[1] + coef(m4)[2]), # beta_0 + beta_1
+  b = (coef(m4)[3] + coef(m4)[4]), # beta_3 + beta_4
+  lwd = 3,
+  col = col_vec[2]
+)
+
+```
+
+#### ggplot2 {-}
+
+```{r interation-model-plot-ggplot2, message=FALSE, warning=FALSE}
+ggplot(
+  data = dat1,
+  aes(x = education, y = income, color = gender)
+) +
+  geom_point(
+    position = position_jitter(w = 0.15, h = 0), # only shift along x axis
+  ) +
+  geom_line(mapping = aes(y = predict(m4))) +
+  theme_classic() +
+  labs(
+    x = "Education (years)",
+    y = "Income (USD '000)",
+    color = "",
+    title = "The Effect of Education and Gender on Income",
+    subtitle = "Intercept Shift with Same Slope"
+  ) +
+  scale_y_continuous(
+    limits = c(20, 40)
+  ) +
+  scale_color_manual(values = magma(2, direction = -1, end = 0.7)) +
+  theme(legend.position = "top")
+```
+
+### More Subgroups and Interactions between Continuous Variables 
+
+Now you have seen how we can get different slopes for subgroups. We can have more subgroups than just two - in this case, once we add the interaction, each of the categories will have a separate slope.
+
+We can also have interactions between two continuous variables. In this case, people often use marginal effect plots or, when plotting the predictions, select a few meaningful values in one variable (e.g., from some smaller and larger percentiles) and plot the predictions for the range of another variable in a similar manner to discrete case as we had here. You will learn about this in the next lab. 
+
+---
+
+# Exercise section {-}
+
+We will do some of these exercises in class, and the rest you should try doing at home, to better prepare yourself for the homework.  
+
+## Exercise I: First difference in income between female and male {-}
+
+Assume that you enjoyed 10 years of education. Using our regression model with interaction effect (`m4`), you want to find out:
+
+(1) how much income you could expect if you enter the job market now.
+(2) how much more income you could expect from one additional year of education.
+
+Do this calculation for both genders. Which gender benefits more from one additional year of education?
+
+```{r Exercise-I}
+
+object
+
+```
+
+Answer:
+predicted income for 10 jears of education
+r inline code
+
+<!-- use inline code to write the answers in the results  -->
+<!-- The answer to your question with a number may look like: `r #format(fd, digits = 2)` -->
+
+- One additional year of education for males is associated with `r # answer` [increase/decrease] in expected income. 
+- The predicted average income of females with 11 years of education is `r # answer`. 
+- Females with 11 years of education, on average, earn `r # answer` [more/less] than males with 11 years of education.
+
+## Exercise II: Alternative Education Coding {-}
+
+We've been using the years of schooling, assuming that each addition year of education has the same effect on income. But is this really the case? Can we expect the change from 1 to 2 years of education to have the same effect on income as an additional year of education, when you already studied for 10 years?
+
+While one way to address this question would be with a transformation of the *education* variable, here we will use a different coding of the education variable to explore this difference. In this dataset, people with up to 6 years of education could be considered having *primary* education, those with 7 to 10 years - *secondary*,  and those with 11 to 14 years - *higher* education. So we will first need to create such a variable `edu_category`. 
+
+```{r Exercise-II-recoding-education}
+# 
+# education to  edu_category
+# case when
+
+```
+
+Now you need to fit a regression to see what is the effect of education (recoded) on earnings. But before you fit this model, you may want to do another recoding, this time to create dummies. You will be particularly interested in the effect of having higher education in comparison to having secondary education. Decide on:
+
+- How many dummies do you need?
+- What is the best way to create them?
+
+```{r Exercise-II-create-dummies}
+
+
+
+```
+
+Now run the model and interpret the coefficients. Remember that your recoding matters!
+
+```{r Exercise-II-run-model}
+
+```
+
+- The predicted income for a person with primary education would be `r #answer`, and the 95% confidence interval for this prediction is `r #answer`.
+- The average difference in income between those with secondary education and those with higher education is `r #answer` and the 95% confidence interval for this difference is `r #answer`.
+
+
+## Exercise III: Testing against a different null hypothesis {-}
+
+Consider the simple model from earlier, with education in years, without an interaction term again:
+
+`r extract_eq(m3, intercept = "\\hat{\\beta}_{0}", use_coefs = FALSE, greek = "\\hat{\\beta}", raw_tex = T)`
+
+```{r Exercise-III-model}
+tidy(m3)
+```
+
+Someone claims that one additional year of education leads to an average increase in income of 500, holding gender constant. You make the case that this is not true. Your alternative hypothesis is that the effect of education on income is *different from 500*. Calculate the t- and p-value. Can you support your claim?
+
+```{r Exercise-III-hypothesis-testing}
+
+```
+
+Answer:
+
+-   The estimated effect of income is:
+-   This effect [is/is not] significantly different from 500.
+
+---
+
+# Concluding Remarks {-}
+
+In this lab, you have learned to implement hypothesis testing in R and worked with categorical variables. As you have seen, the uncertainty around the coefficient estimates is expressed in standard errors, confidence intervals,   t-values, p-values (`Pr(>|t|)`). Yet essentially, all these numbers express *exactly the same*. And even more importantly, statistical significance is only one part of the story you will want to tell with your models; substantive significance is crucial, too. Plus, remember that the use of p-values is now heavily debated... 
+
+![If all else fails, use "significant at a p>0.05 level" and hope no one notices.](https://imgs.xkcd.com/comics/p_values_2x.png){height="350px"}
+
+In your homework, we will ask you to:
+
+-   give some definitions
+-   run a new model with the German election data
+-   practice interpreting regression results
+
+You are very welcome to learn more about the handy things you may see in this lab and also use them in your homework assignments and data essay:
+
+- doing references in RMarkdown on our [course website](https://qm2021.netlify.app/misc/citations/) 
+- working in Latex Math mode to make nice regression equations with [equatiomatic](https://cran.r-project.org/web/packages/equatiomatic/vignettes/intro-equatiomatic.html) package   
+
+# Appendix {-}
+## Appendix I: DAG for Our Fake Data {-}
+
+Here you can find a DAG for the fake dataset we created for this lab. In this case, we explicitly worked with a case of interactions. As you can see, we are adding an interaction explicitly as a variable into the DAG, and this variable affects income. Yet we also assume that these is a direct effect of both *education* and *female* on income separately as well.
+
+```{r assumed-dag, fig.cap="Assumed Relationship in the Dataset", fig.dim=c(4,3)}
+
+dagitty('dag {
+bb="0,0,1,1"
+"Female * Education" [pos="0.3,0.45"]
+Education [exposure,pos="0.2,0.5"]
+Female [pos="0.25,0.4"]
+Income [outcome,pos="0.6,0.5"]
+"Female * Education" -> Income
+Education -> "Female * Education"
+Education -> Income
+Female -> "Female * Education"
+Female -> Income
+}
+') %>%
+  plot()
+```
+
+
+# References {-}

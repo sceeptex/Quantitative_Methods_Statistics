@@ -1,0 +1,977 @@
+---
+title: "QM 2021 Week 5 -- Statistical Control & Causality"
+author: 
+  - "Oliver Rittmann"
+  - "Viktoriia Semenova"
+  - "David Grundmanns"
+date: "October 7 | 11 | 12, 2020"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    css: css/lab.css
+  pdf_document:
+    toc: yes
+  html_notebook:
+    toc: true
+    toc_float: true
+    css: css/lab.css
+---
+
+---
+
+
+# Today we will learn {-}
+
+1.   Multivariate Regression: Statistical Control
+2.   Statistical Control for Causal Inference: Good and Bad Controls
+3.   Selection Bias: Bias through stratification
+
+
+In other words, our goals are to:
+
+ + understand what statistical control means
+ + look at how to use dummy variables
+ + explore bias introduced through stratified samples
+ 
+---
+
+```{r setup}
+# The first line sets an option for the final document that can be produced from
+# the .Rmd file. Don't worry about it.
+knitr::opts_chunk$set(echo = TRUE)
+
+# The next bit is quite powerful and useful. 
+# First you define which packages you need for your analysis and assign it to 
+# the p_needed object. 
+p_needed <-
+  c("foreign", "viridis", "dplyr","ggplot2", "gridExtra")
+
+# Now you check which packages are already installed on your computer.
+# The function installed.packages() returns a vector with all the installed 
+# packages.
+packages <- rownames(installed.packages())
+# Then you check which of the packages you need are not installed on your 
+# computer yet. Essentially you compare the vector p_needed with the vector
+# packages. The result of this comparison is assigned to p_to_install.
+p_to_install <- p_needed[!(p_needed %in% packages)]
+# If at least one element is in p_to_install you then install those missing
+# packages.
+if (length(p_to_install) > 0) {
+  install.packages(p_to_install)
+}
+# Now that all packages are installed on the computer, you can load them for
+# this project. Additionally the expression returns whether the packages were
+# successfully loaded.
+sapply(p_needed, require, character.only = TRUE)
+
+# This is an option for stargazer tables
+# It automatically adapts the output to html or latex,
+# depending on whether we want a html or pdf file
+stargazer_opt <- ifelse(knitr::is_latex_output(), "latex", "html")
+```
+
+
+## 1. Multivariate Regression: Statistical Control
+
+First, we have another look at the US presidential elections.
+
+```{r 1_load_us_data}
+load("raw-data/uspresnew.Rdata") # presidential elections
+
+us
+```
+
+
+**Remember our basic bivariate model?**
+
+```{r 1 bivariate model}
+lm(vote ~ growth, data = us)
+```
+
+Let's estimate effect of approval while controlling for growth (i.e. holding growth constant) step by step (like in the lecture).
+
+It is helpful to think of statistical control as Venn-Diagrams:
+
+![Vote on Growth](images/venn1.png){width=250px}
+
+First, we need the residuals from growth on vote. With this regression we "remove the effect of growth on vote".
+
+```{r 1 aux1}
+aux1 <- lm(vote ~ growth, data = us)
+```
+
+Let's have another look at the Venn-Diagram:
+
+![Vote on Growth](images/venn2.png){width=250px}
+
+Now we can get the residuals. The residuals in this model are the part of vote unexplained by growth.
+
+```{r 1 residuals aux1}
+resid_aux1 <- residuals(aux1)
+```
+
+![Residuals 1](images/venn3.png){width=250px}
+
+Next, we remove the effect of growth on approval. For this, we need the residuals from growth on approval.
+
+```{r 1 aux2}
+aux2 <- lm(approval ~ growth, data = us)
+
+```
+
+![Approval on Growth](images/venn4.png){width=250px}
+
+And get the residuals.
+
+```{r 1 residuals aux2}
+resid_aux2 <- residuals(aux2)
+```
+
+![residuals 2](images/venn5.png){width=250px}
+
+Now we can estimate the unconfounded effect of approval on vote.
+
+
+```{r 1 aux3}
+aux3 <- lm(resid_aux1 ~ resid_aux2)
+```
+
+![Unconfounded effect of approval represented by blue area](images/venn6.png){width=250px}
+
+```{r 1 summary aux3}
+summary(aux3)
+```
+
+
+Of course we do not need to do this step-by-step. R knows how to handle multivariate OLS models.
+
+```{r 1 lm function}
+mv <- lm(vote ~ growth + approval, data = us)
+mv
+
+summary(mv)
+```
+
+Let's check if it worked. Compare the unconfounded effect of approval on vote with the multivariate model.
+
+```{r 1 comparison}
+coef(aux3)[2]==coef(mv)[3]
+```
+
+**What would we have to do to get the coefficient of growth step-by-step?**
+
+![Unconfounded effect of growth represented by blue area](images/venn7.png){width=250px}
+
+
+## 2. Statistical Control for Causal Inference: Good and Bad Controls
+
+Whenever we run regression models, deciding which variables to include or not to include as control variables in a regression model is a decisive task that requires careful thinking. We learned about three types of variables: *confounders*, *mediators*, and *colliders*. 
+
+![Confounder, Mediator, and Collider](images/dags1.png)
+
+While we want to control for confounders, we should avoid controlling for mediators and colliders.
+
+## 2.1 Confounders {.tabset}
+
+A team of researchers wants to study whether attending a Trump rally increases Trump's popularity among visitors of the rally. The team fields a survey in a town where Trump just held a rally. Respondents were asked whether they like Trump (`like_trump`), about their ideology (`ideology`) and whether they attended the rally (`attendance`). Importantly, they only have data from *after* the rally, but not from before the rally.
+
+```{r 2_1 Load the data}
+load("raw-data/trump_rally.Rdata")
+
+head(trump_rally)
+summary(trump_rally)
+```
+
+### Base R {.unnumbered}
+
+Let's have a look at the distributions of the variables:
+
+```{r 2_1 base Exploratory Data Analysis}
+attendance_table <- table(trump_rally$attendance)
+
+barplot(attendance_table,
+        main = "Attendance at Trump Rally",
+        xlab = "",
+        names.arg = c("was not at rally", "was at rally"),
+        col = viridis(1),
+        border = F,
+        las = 1)
+
+hist(trump_rally$ideology,
+     main = "Histogram of Ideology",
+     xlab = "Ideology (Liberal-Conservative)",
+     col = viridis(1),
+     border = F,
+     las = 1)
+     
+hist(trump_rally$like_trump,
+     main = "Histogram of Like/Dislike Trump",
+     xlab = "Dislike - Like: Trump",
+     col = viridis(1),
+     border = F,
+     las = 1)
+```
+
+Let's compare those who were at the Trump rally with those who were not at the rally.
+
+```{r 2_1 base A first comparison}
+attendance_jitter <- jitter(trump_rally$attendance) # What does jitter do?
+
+plot(attendance_jitter,
+     trump_rally$like_trump,
+     xlab = "Attended the Trump rally",
+     ylab = "Dislike - Like: Trump",
+     col = viridis(1, alpha = 0.5),
+     pch = 19,
+     xaxt = "n",
+     bty = "n")
+axis(1,
+     at = 0:1,
+     labels = c("was not at rally",
+                "was at rally"),
+     tick = F)
+```
+
+### ggplot2 {.unnumbered}
+
+Let's have a look at the distributions of the variables:
+
+```{r 2_1 ggplot2 Exploratory Data Analysis}
+ggplot(
+  data = trump_rally,
+  aes(attendance)
+) +
+  geom_bar(
+    stat = "count",
+    color = "white",
+    fill = viridis(1)
+  ) +
+  theme_minimal() +
+  theme(panel.grid.minor = element_blank()) +
+  scale_x_continuous(
+    "", 
+    breaks = c(0,1), 
+    labels = c("was not at rally","was at rally")
+  )+
+  labs(
+    title = "Attendance at Trump Rally",
+    y = ""
+    )
+
+ggplot(
+  data = trump_rally,
+  aes(ideology)
+) +
+  geom_histogram(
+    boundary = 10,
+    binwidth = 2,
+    color = "white",
+    fill = viridis(1)
+  ) +
+  labs(
+    title = "Histogram of Ideology",
+    x = "Ideology (Liberal-Conservative)",
+    y = "Frequency"
+  ) +
+  theme_minimal() +
+  scale_x_continuous(
+    breaks = c(seq(-10, 10, by = 5))
+  )
+
+ggplot(
+  data = trump_rally,
+  aes(like_trump)
+) +
+  geom_histogram(
+    boundary = 10,
+    binwidth = 2,
+    color = "white",
+    fill = viridis(1)
+  ) +
+  labs(
+    title = "Histogram of Like/Dislike Trump",
+    x = "Dislike - Like: Trump",
+    y = "Frequency"
+  ) +
+  theme_minimal() +
+  scale_x_continuous(
+    breaks = c(seq(-10, 10, by = 5))
+  )
+
+```
+
+Let's compare those who were at the Trump rally with those who were not at the rally.
+
+```{r 2_1 ggplot2 A first comparison}
+trump_rally$attendance_jitter <- jitter(trump_rally$attendance) # What does jitter do?
+
+ggplot(data = trump_rally,  # data used for plotting
+       mapping = aes(x = attendance_jitter, 
+                     y = like_trump)
+       ) +
+  geom_point(
+    color = viridis(1, alpha = 0.5), 
+    size = 2
+    ) + 
+  theme_minimal() + # change the appearance
+  theme(panel.grid.minor = element_blank()) +
+  labs(
+    x = "Attended the Trump rally",
+    y = "Dislike - Like: Trump"
+    ) +
+  scale_x_continuous(
+    "", 
+    breaks = c(0,1), 
+    labels = c("was not at rally","was at rally")
+    )
+
+trump_rally$attendance_jitter <- NULL
+```
+
+## {.tabset .unlisted .unnumbered}
+
+A naive regression model:
+
+```{r 2_1 A naive regression model}
+lm1 <- lm(like_trump ~ attendance,
+          data = trump_rally)
+summary(lm1)
+```
+
+Should we control for ideology? Let's look at a causal graph.
+
+![](images/trump_dag.png){width=250px}
+
+The DAG indicates that ideology is a confounder: Ideology affects whether voters attend the rally and whether they like or dislike Trump. We should thus control for ideology. Let's see whether this changes the result.
+
+```{r 2_1 Controlling for a confounder}
+lm2 <- lm(like_trump ~ attendance + ideology,
+          data = trump_rally)
+summary(lm2)
+```
+
+### Base R {.unnumbered}
+
+The effect of attending the Trump rally on whether someone likes or dislikes Trump almost entirely disappears. To get an idea why including ideology as a control variable makes such a difference, let's look at the bivariate relationship between ideology and the popularity of Trump and color the dots according to whether someone was at the rally or not.
+
+```{r 2_1 base Coloring the dots}
+col_vec <- viridis(2, alpha = 0.5)
+
+attend_col <- ifelse(trump_rally$attendance == 1, 
+                     col_vec[1],
+                     ifelse(trump_rally$attendance == 0, 
+                            col_vec[2], NA)) # Why do we nest two ifelse statements?
+
+plot(jitter(trump_rally$ideology), # Now that we know what jitter does, let's make good use of it
+     trump_rally$like_trump,
+     xlab = "Ideology (Liberal-Conservative)",
+     ylab = "Dislike - Like: Trump",
+     pch = 19,
+     col = attend_col,
+     bty = "n")
+legend("topleft",
+       col = col_vec,
+       pch = 19,
+       legend = c("was at rally",
+                  "was not at rally"),
+       bty = "n")
+```
+
+### ggplot2 {.unnumbered}
+
+The effect of attending the Trump rally on whether someone likes or dislikes Trump almost entirely disappears. To get an idea why including ideology as a control variable makes such a difference, let's look at the bivariate relationship between ideology and the popularity of Trump and color the dots according to whether someone was at the rally or not.
+
+```{r 2_1 ggplot2 Coloring the dots}
+col_vec <- viridis(2, alpha = 0.5)
+
+attend_lab <- ifelse(trump_rally$attendance == 1, 
+                     "did attend",
+                     ifelse(trump_rally$attendance == 0, 
+                            "did not attend", NA)) # Why do we nest two ifelse statements?
+
+ggplot(data = trump_rally,  # data used for plotting
+       mapping = aes(x = ideology, 
+                     y = like_trump,
+                     color = attend_lab)
+       ) +
+  geom_jitter(
+    size = 2,
+    width = 0.25
+       ) + 
+  theme_minimal() + # change the appearance
+  labs(
+    x = "Ideology (Liberal-Conservative)",
+    y = "Dislike - Like: Trump",
+    title = ""
+      ) + 
+  scale_color_manual(
+    name = "", 
+    values = c("did attend" = col_vec[1], "did not attend" = col_vec[2])
+    )
+
+```
+
+## {- .unnumbered .unlisted}
+
+It becomes apparent that people who already like Trump were way more likely to go to the rally than people who dislike Trump. This supports the causal model we specified in the DAG and constitutes what we call *selection into treatment*. At the same time, ideology affects Trumps popularity: more conservative people are more in favor of Trump than liberal people. Because ideology affects the independent variable, as well as the dependent variable, we must control for it. Otherwise, we compare groups that were systematically different from one another already before the Trump rally and the regression coefficient will pick up this difference as long as we do not control for it.
+
+
+## 2.2 Mediators {.tabset}
+
+The next team of researchers wants to find out whether civic education programs can increase turnout. In search of empirical evidence, they conduct an experiment in which they randomly assign participants to attend a civic education program (`educ_program` = 1) or not (`educ_program` = 0). *After the experiment*, they conduct a survey among all participants asking them to indicate on a scale from 0 to 10 how willing they are to cast a vote in the next election (`turnout`). Furthermore, to understand the effect of the civic training on turnout independent of subjects’ political awareness, they also ask respondents about their political interest. 
+
+Let's have a look at the resulting data.
+
+```{r 2_2 Loading the data}
+load("raw-data/experiment.Rdata")
+```
+
+### Base R {.unnumbered}
+
+```{r 2_2 base Exploratory Data Analysis}
+barplot(table(experiment$educ_program),
+        main = "Assignment to civic education program",
+        xlab = "",
+        names.arg = c("Control Group", "Treatment Group"),
+        col = viridis(1),
+        border = F,
+        las = 1)
+
+hist(experiment$pol_interest,
+     main = "Histogram of political interest",
+     xlab = "Political Interest",
+     col = viridis(1),
+     border = F,
+     las = 1)
+
+hist(experiment$turnout,
+     main = "Histogram of willingness to turn out",
+     xlab = "Willingness to turn out",
+     col = viridis(1),
+     border = F,
+     las = 1)
+```
+
+### ggplot2 {.unnumbered}
+
+```{r 2_2 ggplot2 Exploratory Data Analysis}
+ggplot(
+  data = experiment,
+  aes(educ_program)
+) +
+  geom_bar(
+    stat = "count",
+    color = "white",
+    fill = viridis(1)
+  ) +
+  theme_minimal() +
+  theme(panel.grid.minor = element_blank()) +
+  scale_x_continuous(
+    "", 
+    breaks = c(0,1), 
+    labels = c("Control Group","Treatment Group")
+    ) +
+  labs(
+    title = "Assignment to civic education program", 
+    y = ""
+    )
+
+ggplot(
+  data = experiment,
+  aes(pol_interest)
+) +
+  geom_histogram(
+    boundary = 10,
+    binwidth = 1,
+    color = "white",
+    fill = viridis(1)
+  ) +
+  labs(
+    title = "Histogram of political interest",
+    x = "Political Interest",
+    y = "Frequency"
+  ) +
+  theme_minimal() +
+  scale_x_continuous(
+    breaks = c(seq(0, 10, by = 2))
+  )
+
+ggplot(
+  data = experiment,
+  aes(turnout)
+) +
+  geom_histogram(
+    boundary = 10,
+    binwidth = 1,
+    color = "white",
+    fill = viridis(1)
+  ) +
+  labs(
+    title = "Histogram of willingness to turn out",
+    x = "Willingness to turn out",
+    y = "Frequency"
+  ) +
+  theme_minimal() +
+  scale_x_continuous(
+    breaks = c(seq(0, 10, by = 2))
+  )
+```
+
+## {- .unnumbered .unlisted}
+
+The effect of attending the Trump rally on whether someone likes or dislikes Trump almost entirely disappears. To get an idea why including ideology as a control variable makes such a difference, let's look at the bivariate relationship between ideology and the popularity of Trump and color the dots according to whether someone was at the rally or not.
+
+
+When the team turns to analysing their data, they are unsure whether they should use the political interest variable as a control variable in their model or not. Let's see whether this makes a difference:
+
+```{r 2_2 First regression}
+lm1 <- lm(turnout ~ educ_program,
+          data = experiment)
+          
+summary(lm1)
+```
+
+```{r 2_2 Controlling for interest}
+lm2 <- lm(turnout ~ educ_program + pol_interest,
+          data = experiment)
+          
+summary(lm2)
+```
+
+Which model should they use? Let's consider a DAG again. Because the civic education program was randomly assigned to participants, political interest cannot affect the 'education program' variable. However, if the civic education program worked, it may also affect participant's level of political interest. The arrow between 'education program' and 'political interest' is thus directed from 'education program' to 'political interest'. This results in the following DAG:
+
+![](images/experiment_dag.png){width=250px}
+
+The DAG shows that `pol_interest` is a mediator variable and thus should not be included in the regression model. By including a mediator, we run in danger to **control away** the causal effect of interest. In the present case, when controlling for the mediator, the estimate of the causal effect even goes in the opposite direction. This is due to unobserved background variables (you can read [Montgomery et al (2018)](https://onlinelibrary.wiley.com/doi/full/10.1111/ajps.12357) to learn more about this).
+
+
+## 2.3 Colliders and sample selection {.tabset}
+
+In the final example, a group of university researchers wants to find out how attendance in lectures affects exam grades. They hypothesize that the more lectures a student attends to, the better they will do in the final exam. To test their hypothesis, they poll students online on their 'attendance' in lectures and 'grade' in the exam at the end of the semester.
+
+```{r 2_3 Loading the data}
+load("raw-data/studentpoll.Rdata")
+glimpse(poll)
+
+```
+
+### Base R {.unnumbered}
+
+The data includes the survey results for each participant, namely their reported grade and attendance.
+
+```{r 2_3 base Exploratory Data Analysis}
+barplot(
+  table(poll$grade),
+  main = "Exam grades",
+  col = viridis(1),
+  border = F,
+  las = 1
+)
+
+barplot(
+  table(poll$attendance),
+  main = "Number of lectures",
+  col = viridis(1),
+  border = F,
+  las = 1,
+)
+
+```
+
+### ggplot2 {.unnumbered}
+
+The data includes the survey results for each participant, namely their reported grade and attendance.
+
+```{r 2_3 ggplot2 Exploratory Data Analysis}
+grades <- sort(unique(poll$grade))
+
+ggplot(
+  data = poll,
+  aes(grade)
+) +
+  geom_bar(
+    stat = "count",
+    color = "white",
+    fill = viridis(1)
+  ) +
+  theme_minimal() +
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank()) +
+  scale_x_continuous("", breaks = grades) +
+  labs(title = "Exam grades", y = "", x = "")
+
+rm(grades)
+
+ggplot(
+  data = poll,
+  aes(attendance)
+) +
+  geom_bar(
+    stat = "count",
+    color = "white",
+    fill = viridis(1)
+  ) +
+  theme_minimal() +
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank()) +
+  scale_x_continuous("", breaks = seq(0, 14, 1)) +
+  labs(title = "Number of lectures attended", y = "", x = "")
+
+
+```
+
+## {.tabset .unlisted .unnumbered}
+
+After exploring their poll results, the team of researchers start by calculating a linear regression.
+
+```{r 2_3 Regression}
+summary(lm1 <- lm(
+  grade ~ attendance,
+  data = poll
+))
+
+```
+
+Surprisingly, the team of researcher does not find any empirical support for their hypothesis.
+According to their bivariate model, on average, each additional lecture attended actually increases the numerical value of exam grades received by 0.009. That means, our prediction would be that not attending the lecture at all improves students' exam grades by 0.13. A small, but nonetheless unexpected estimated effect.
+
+> **Do you have any ideas how this result can be explained?**
+
+
+Luckily, this is simulated data. So let's have a look at the population to better explain this finding.
+First, we will take a sample of our population exactly the same size as our poll. The population consists of all students, whereas the sample only included students who participated in the online survey.
+
+Perhaps, it is helpful to look at a scatterplot. Due to the scale of our variables, we can use jitter on both x and y to create a scatterplot that somewhat resembles a heatmap.
+
+```{r 2_3 sample from population}
+set.seed(2021)
+
+# create sample from population with same size as poll sample
+pop <- population[sample(1:nrow(population), nrow(poll)),]
+```
+
+### Base R {.unnumbered}
+
+```{r base population}
+par(mfrow = c(1, 2))
+
+# Scatterplot: Polled students
+plot(jitter(poll$attendance, 2.2),
+     jitter(poll$grade, 2),
+     main = "Polled students",
+     xlab = "Attended lectures",
+     ylab = "Exam Grade",
+     xlim = c(0,14),
+     pch = 19,
+     col = viridis(1, alpha = 0.1),
+     bty = "n")
+
+# now let's create the same plot, but on the sample taken from our population
+plot(jitter(pop$attendance, 2.2),
+     jitter(pop$grade, 2),
+     main = "Student population sample",
+     xlab = "Attended lectures",
+     ylab = "Exam Grade",
+     xlim = c(0,14),
+     pch = 19,
+     col = viridis(1, alpha = 0.1),
+     bty = "n")
+
+```
+
+> **Can you spot differences?**
+
+### ggplot2 {.unnumbered}
+
+```{r ggplot2 population}
+# ggplot2 version for par(mfrow = c(1, 2))
+
+lp <- ggplot(
+  data = poll,  # data used for plotting
+  mapping = aes(x = jitter(attendance, 2.2), 
+                y = jitter(grade, 2))
+    ) +
+  geom_point(
+    color = viridis(1, alpha = 0.1), 
+    size = 2
+    ) + 
+  theme_minimal() + # change the appearance
+  labs(x = "Lectures attended",
+       y = "Exam grades",
+       title = "Polled students"
+       )
+
+rp <- ggplot(
+  data = pop,  # data used for plotting
+  mapping = aes(x = jitter(attendance, 2.2), 
+                y = jitter(grade, 2))
+  ) +
+  geom_point(
+    color = viridis(1, alpha = 0.1), 
+    size = 2
+  ) + 
+  theme_minimal() + # change the appearance
+  labs(
+    x = "Lectures attended",
+    y = "Exam grades",
+    title = "Student population sample"
+    )
+
+gridExtra::grid.arrange(lp,rp, nrow=1, ncol=2)
+
+```
+
+> **Can you spot differences?**
+
+## {.tabset .unlisted .unnumbered}
+
+Apparently, the sample is not an accurate reflection of the underlying population of students. 
+
+Let's test the relationship between lecture attendance and exam grades again!
+
+```{r 2_3 Regression on pop}
+summary(lm2 <- lm(
+  grade ~ attendance,
+  data = pop
+))
+
+```
+
+> **What happened?**
+
+We learned that colliders are **bad** controls and we do not include them in our model to avoid bias. A collider is a variable affected by both, X and Y. In other words, both X and Y can be used to explain some variation in the collider. You can read more on colliders in the Appendix.
+
+However, colliders do not have to be included as control variables to introduce  bias. Adjusting for a collider variable can introduce **sample selection bias** (or collider stratification bias). In this case, adjustment was done by students through self-selection into the online poll -- by only using students who participated in the survey, we implicitely "control" for this variable (because we hold this constant). The team of researchers polled a sample which does not accurately depict the full population of students.
+
+![](images/selection_dag.png){width=250px}
+
+In our case, attendance affects exam grades, as shown by the regression on the full population.
+However, attendance also affects poll response.
+
+We can also see the respective associations in the data:
+
+```{r 2_3 self_selection}
+
+# attendance affects poll response
+lm3 <- lm(
+  poll ~ attendance,
+  data = population
+)
+lm3
+
+# Grades affect poll response
+lm4 <- lm(
+  poll ~ grade,
+  data = population
+)
+lm4
+
+```
+
+In consequence, our sample overrepresents good students who attend regularly and underrepresents failing students, especially those who do not attend.
+
+### Base R {.unnumbered}
+
+It's best to look at it:
+
+```{r 2_3 base self_selection2}
+col_vec <- viridis(2, alpha = 0.3)
+
+poll_col <- ifelse(pop$poll == 1, col_vec[1], col_vec[2])
+
+par(mar=c(5,5,1,5), xpd=TRUE)
+plot(jitter(pop$attendance, 2.2), # Now that we know what jitter does, let's make good use of it
+     jitter(pop$grade, 2),
+     main = "Population sample by poll response",
+     xlab = "Lectures attended",
+     ylab = "Exam grades",
+     pch = 19,
+     col = poll_col,
+     bty = "n")
+legend("topright",
+       inset=c(-0.2,0),
+       col = viridis(2, alpha = 1),
+       pch = 19,
+       legend = c("polled",
+                  "not polled"),
+       bty = "n")
+```
+
+### ggplot2 {.unnumbered}
+
+It's best to look at it:
+
+```{r 2_3 ggplot2 self_selection2}
+col_vec <- viridis(2, alpha = 0.3)
+
+poll_lab <- ifelse(pop$poll == 1, 
+                     "polled",
+                     ifelse(pop$poll == 0, 
+                            "not polled", NA)) # Why do we nest two ifelse statements?
+
+ggplot(data = pop,  # data used for plotting
+       mapping = aes(x = jitter(attendance, 2.2), 
+                     y = jitter(grade, 2),
+                     color = poll_lab)
+       ) +
+  geom_point(size = 2) + 
+  theme_minimal() + # change the appearance
+  labs(
+    x = "Lectures attended",
+    y = "Exam grades",
+    title = "Population sample by poll response"
+  ) + 
+  scale_color_manual(
+    name = "", 
+    values = c("polled" = col_vec[1], "not polled" = col_vec[2])
+  )
+```
+
+## {- .unlisted .unnumbered}
+
+If you were to select cases for your study conditional on a collider, this can bias in our causal estimates. Further, like controlling for colliders, it can generate spurious associations between variables that are not related to each other. This sort of **Sample Selection Bias** is induced, because we -- even unintendedly -- stratify on a collider, we also stratify on the X and Y of interest.
+
+
+## Exercise Section
+
+Now it's your turn! You want to study how the amount of time students devote to studying affects their final grades. You are interested in the causal effect of study time on scores in a final exam: How many more points do students gain on average for one additional hour of weekly studying?
+
+To study this question, you have the following data:
+  
+  + `student_id`: an identifier for students in the sample
+  + `study_hours`: average number of weekly study hours
+  + `motivation`: whether students were motivated to take the course (prior to the semester)
+  + `exercises`: average weekly number of practice exercises students worked on during their study hours
+  + `score`: score in the final exam
+  
+  
+```{r load exercise data}
+load("raw-data/ex1.Rdata")
+
+head(ex1)
+```  
+
+```{r exercise plots}
+
+# distribution of weekly study hours
+hist(ex1$study_hours,
+     main = "Histogram of study hours",
+     xlab = "Average weekly study hours",
+     col = viridis(1),
+     border = F,
+     las = 1)
+
+# Distribution of number of weekly exercises
+hist(ex1$exercises,
+     breaks = max(ex1$exercises),
+     main = "Histogram of exercises",
+     xlab = "Average weekly number of practice exercises",
+     col = viridis(1),
+     border = F,
+     las = 1)
+
+# Distribution of Motivation
+barplot(table(ex1$motivation),
+        main = "Motivated and unmotivated students",
+        xlab = "",
+        names.arg = c("Not motivated", 
+                      "Motivated"),
+        col = viridis(1),
+        border = F,
+        las = 1)
+
+# Distribution of final test score
+hist(ex1$score,
+     main = "Histogram of exercises",
+     xlab = "Average weekly number of practice exercises",
+     col = viridis(1),
+     border = F,
+     las = 1)
+```
+
+It is your task to specify a regression model to estimate the causal effect of **study hours** on students' **final score**. In other words: You have to decide which variables to include as control variables. 
+
+  + Try out different model specifications. How does the causal effect estimate differ depending on which variables you control for
+  + Construct a DAG.
+  + Is `motivation` a confounder, mediator, or collider?
+  + Is `exercises` a confounder, mediator, or collider?
+  + Which variables should we include in our final model? Interpret the causal effect estimate.
+
+```{r Exercise 1}
+
+```
+
+## Concluding remarks
+
+In your homework you will do a peer review!
+ 
+ 
+ 
+### Appendix I: Colliders
+
+In the final example, another team of researchers wants to find out whether education has an effect on the popularity of populist right parties. The team uses survey data to test their hypothesis. Specifically, the consider three survey items: `like_pop_right` indicates respondents rating of a populist right wing party. `educ` indicates survey respondents level of formal education and `vote_pop_right` indicates whether survey respondents voted for the populist right party in the last election.
+
+```{r A Loading the data}
+load("raw-data/populism.Rdata")
+head(populism)
+```
+
+```{r A Exploratory Data Analysis}
+hist(populism$educ,
+     breaks = seq(0.5, 7.5, 1),
+     main = "Histogram of Education",
+     xlab = "Formal level of education",
+     col = viridis(1),
+     border = F,
+     las = 1)
+     
+hist(populism$like_pop_right,
+     main = "Histogram of like/dislike populist right party",
+     xlab = "Like/Dislike Populist Right Party",
+     col = viridis(1),
+     border = F,
+     las = 1)
+
+barplot(table(populism$vote_pop_right),
+        main = "Vote for populist right party",
+        xlab = "",
+        names.arg = c("Not voted for\npopulist right party", 
+                      "Voted for\npopulist right party"),
+        col = viridis(1),
+        border = F,
+        las = 1)
+```
+
+The team stumbles a cross a puzzling phenomenon when analysing the data: When they do not control for `vote_pop_right`, they do not find an effect of education on the popularity of populist right wing parties. However, when they do control for `vote_pop_right`, they find a negative effect of education on the popularity of populist right wing parties. They are unsure whether they should include `vote_pop_right` as a control variable in their model.
+
+```{r A First regression}
+lm1 <- lm(like_pop_right ~ educ,
+          data = populism)
+          
+summary(lm1)
+```
+
+```{r A Controlling for vote}
+lm2 <- lm(like_pop_right ~ educ + vote_pop_right,
+          data = populism)
+          
+summary(lm2)
+```
+
+Let's again consider a DAG in order to decide whether `vote_pop_right` should be included in the model. We suspect that education potentially affects whether someone voted for a populist right party (rather than the other way around) and whether someone likes a party affects whether they* votes for that party (rather than the other way around). Thus, we draw a directed arrow from 'education' to 'vote' and another directed arrow from 'like populist right party' to 'vote'. This results in the following DAG:
+
+*['they' is a gender-inclusive alternative to the generic 'he' or the binary 'he/she'.](https://www.oxfordlearnersdictionaries.com/definition/english/they)
+
+![](images/populism_dag.png){width=250px}
+
+It turns out that `vote_pop_right` is a collider and thus a **bad** control variable. Including colliders can generate spurious associations between variables that are not related to each other. When we include colliders, our causal estimates may be biased.
+
+### Appendix II: More complex sample selection
+
+From our DAG in the attendace-grade example, we would assume that attendance affects survey response and so does exam performance. However, the relationship does not have to be direct. Instead, we could assume that attendance does not impact poll response, because the poll is done online. Instead, there may be an unobserved confounder that affects our outcome, exam grades, and poll response rate. For example: Internet speed (or access) could impact exam grades, because it makes preparation and learning harder, and poll response rate, because it is harder for students to participate in an online poll.
+It does however not affect attendance, as the lecture is teached only in person.
+
+![](images/selection2_dag.png){width=200px}
+
+In this case, survey response is a collider of attendance and exam grades, because Internet affects survey response and exam grades. Those who do better because of Internet are also more likely to respond to the poll, which introduces a spurious relationship between attendance and exam grades, because we observe a non-representative subsample.
+
+Keep this in mind when you are tasked with data collection, or conduct analysis on samples. Think about which groups of the population you collect data on, and more importantly, which parts of the population are underrepresented or omitted entirely. When you work with existing data, you should assess this retrospectively by studying the documentation on the data collection and processing of the data at hand.

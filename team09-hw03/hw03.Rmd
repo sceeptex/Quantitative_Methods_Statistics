@@ -1,0 +1,324 @@
+---
+title: "Quantitative Methods in Political Science - Homework 3"
+author: 
+  - "Simran Suresh Bhurat (33%)"
+  - "Tobias Fechner (33%)"
+  - "Tobias Jochen Sesterhenn (33%)"
+date: "Due: October 5, 2021"
+output:
+  html_document:
+    toc: no
+  pdf_document:
+    toc: yes
+---
+
+
+```{r setup, include=FALSE}
+# The first line sets an option for the final document that can be produced from
+# the .Rmd file. Don't worry about it.
+knitr::opts_chunk$set(echo = TRUE)
+
+# The next bit (lines 22-43) is quite powerful and useful. 
+# First you define which packages you need for your analysis and assign it to 
+# the p_needed object. 
+p_needed <- c("viridis") # add your packages here 
+
+# Now you check which packages are already installed on your computer.
+# The function installed.packages() returns a vector with all the installed 
+# packages.
+packages <- rownames(installed.packages())
+
+# Then you check which of the packages you need are not installed on your 
+# computer yet. Essentially you compare the vector p_needed with the vector
+# packages. The result of this comparison is assigned to p_to_install.
+p_to_install <- p_needed[!(p_needed %in% packages)]
+
+# If at least one element is in p_to_install you then install those missing
+# packages.
+if (length(p_to_install) > 0) {
+  install.packages(p_to_install)
+}
+# Now that all packages are installed on the computer, you can load them for
+# this project. Additionally the expression returns whether the packages were
+# successfully loaded.
+sapply(p_needed, require, character.only = TRUE)
+```
+
+> **Note:** If you do not have any special reason, please do not load additional packages to solve this homework assignment. If you nevertheless do so, please indicate why you think this is necessary and add the package to the `p_needed` vector in the setup chunk above.
+
+
+## Part 1: Definitions
+
+**1.1 What is a sampling distribution? If you consider a sampling distribution of the sample mean, what can you say about its shape, center, and spread?**
+
+Answer: To estimate a parameter of a distribution, we can take a random sample of the distribution to calculate a statistic that calculates the parameter.
+Due to the fact that all samples are taken randomly, we get different statistics about our parameters. With an increasing number of samples the sampling distribution approaches a normal distribution with the mean mean μ and variance o^2/n (Central Limit Theorem)
+Therefore the center is the global maximum of the normal distribution. This normal distribution is symmetric. Therefore the spread is equal on both sides. 
+
+  
+**1.2 What is a confidence interval? Which assumptions does it rely on?**
+
+A confidence interval of q% is a range that contains the true parameter at least q% of the time if the experiment is repeated a large number of times (This relies on the Central Limit Theorem). This is uncertain because the confidence intervals can be different every time. 
+
+
+
+## Part 2: Confidence Intervals
+
+*You collected a random sample of 50 students and asked them to rate chancellor Merkel on a scale from 1 to 5, with 5 being the highest rating. The mean score is $2.3$ and the sample has a standard deviation of $0.86$.*
+
+**2.1 Estimate Merkel's rating for the population of students and calculate a 95% and a 99% confidence interval analytically. Interpret these confidence intervals.**
+  
+```{r Exercise 2_1}
+# Standard Error:
+se = 0.86 / sqrt(50)
+
+#95% CI
+2.3 + qnorm(c(0.025,0.975), mean = 0, sd = 1) * se
+
+#99% CI
+2.3 + qnorm(c(0.005,0.995), 0, 1) * se
+
+
+```
+
+Answer: The estimate for Merkel#s Rating is 2.3 +/- 0.12.
+        The 95% Confidence Interval is 2.06 2.53.
+        The 99% Confidence Interval is 1.98 2.61.
+        The CI's mean, that if we take random samples many times, then 95% or 99% of these samples will have the true population mean in the range of these respective Confidence Intervals. 
+
+**2.2 Imagine you ran the survey again and had obtained the same information from a random sample of 150 students instead of 50. Calculate the 95% confidence interval analytically and interpret this interval. How and why does it differ from the confidence interval in 2.1?**
+
+```{r Exercise 2_2}
+se = 0.86 / sqrt(150)
+#95% CI
+2.3 + qnorm(c(0.025,0.975), 0, 1) * se
+```
+
+Answer: The 95% Confidence Interval is 2.061625 2.538375. It is smaller than the CI in 2.1, because the standard error has become smaller because of the larger observation size. The observation size is indirectly proportional to the range of the CI.
+
+
+**2.3 Consider the confidence interval in 2.2: If you ran the survey again, can you expect with 95% confidence that the average rating of Merkel in this new sample will lie within the 95\% confidence interval from 2.2?**
+
+Answer: The concept of creating confidence Intervals does not say something about the confidence about one true population mean. It rather creates these random Confidence Intervals and compares the range of these CI with the expected population mean. This allows us to use hypothesis testing.
+
+**2.4 Repeat 2.1 and 2.2, but this time construct the confidence interval using simulation. Plot the resulting distribution. Is it different from the analytical one? If so, how and why?**
+
+```{r Exercise 2_3}
+students = 1000
+distr1000 = rnorm(students, 2.3, 0.86/sqrt(students))
+
+
+hist(
+  x = distr1000,
+  main = "Sampling Distribution of the Sample Mean",
+  xlab = "Support for Merkel",
+  las = 1,
+  col = viridis(2)[2],
+  breaks = 10,
+  yaxt = "n",
+  ylab = ""
+  )
+
+
+
+
+
+```
+
+```{r}
+ci_simulation_95 = quantile(x = distr1000, probs = c(0.025, 0.975))
+print("95% confidence interval with n=1000")
+ci_simulation_95
+```
+
+```{r}
+ci_simulation_99 = quantile(x = distr1000, probs = c(0.005, 0.995))
+print("99% confidence interval with n=1000")
+ci_simulation_99
+
+```
+# qnorm to rnorm 
+Answer: 
+The Analytical approach is based upon the normal distribution and calculates one confidence interval from this normal distribution.
+In the simulation approach, we are drawing samples from a sampling distribution. With these samples we calculate the confidence Interval. Therefore, each run of the simulation
+approach will result in slightly different confidence intervals
+
+
+## Part 3: Smart Mannheim Students
+
+*In the general population IQ is distributed normally with a mean of 100 and a standard deviation of 19. You take a simple random sample of 40 students in Mannheim and find that their mean IQ is 117.* 
+
+**3.1 Calculate the standard error of the mean. What does this value tell you?**
+
+```{r Exercise 3_1}
+se = 19 / sqrt(40)
+se
+```
+
+Answer: The standard error indicates how accurate the mean of the samples are in comparison to the true population mean. The larger the standard error, the further apart are the mean values of our samples. Therefore our samples are less accurate.
+ 
+
+**3.2 Someone claims that on average, Mannheim students have a higher IQ than the general population. Given your data, do you agree?**
+
+```{r Exercise 3_2}
+
+# Analytical approach to calculate confidence interval
+get_confidence_interval_lower_border <- function(mean, sd, n, z) {
+return (mean - z * (sd / sqrt(n)))
+}
+get_confidence_interval_upper_border <- function(mean, sd, n, z) {
+return (mean + z * (sd / sqrt(n)))
+}
+
+
+mean <- 100
+sd <- 19
+n <- 40
+se <- sd/sqrt(n)
+
+#90% CI
+print('90% confidence interval')
+mean + qnorm(c(0.05,0.95), 0, 1) * se
+
+```
+
+```{r}
+print('95% confidence interval')
+mean + qnorm(c(0.025,0.975), 0, 1) * se
+```
+
+
+```{r}
+print('99% confidence interval')
+mean + qnorm(c(0.005,0.995), 0, 1) * se
+```
+
+Answer: 
+
+On average, Mannheim students have a higher IQ than the general population, as the mean IQ of 117 does not not lie within the 90%, 95% or 99% confidence interval on average.
+
+
+**3.3 What is more likely: observing a sample with mean IQ of 117 or observing an individual with an IQ of 117?**
+
+```{r Exercise 3_3}
+# mean IQ
+dnorm(117, 100, 19)
+```
+
+
+
+Answer: Observing an individual with an IQ of 117 is more likely than observing a sample of the entire population with a mean of 117. 
+The more people we include in our sample, the more likely it is that the sample mean will approach the true population mean, since the standard error decreases with a higher sample size. 
+The probability of observing a sample mean of 117 is 1.4%.
+
+
+
+**3.4 Now suppose you got the IQ scores of 40 students who receive scholarships for academic excellence instead of a random sample. Does reporting the confidence intervals for the mean IQ address the problem of bias in sampling?**
+
+Answer: No, the data is then still biased. 
+
+**3.5 Suppose that, based on a different sample, 95% confidence interval for the mean IQ of Mannheim students was calculated as (109, 125). How would you evaluate the following interpretations of this confidence interval? Say whether you think the interpretation is correct or not and explain why you think so.**
+
+> *95% of the time the mean IQ of Mannheim students in this sample is between 109 and 125, if we were to draw repeated samples.*
+
+Answer: False. It is not fixed, as there do not always have to lie 95% of the samples within the CI. 
+
+> *95% of all students in Mannheim have IQ between 109 and 125.*
+
+Answer: False. We cannot conclude the true population mean from the confidence interval.
+
+> *We are 95% confident that the mean IQ of all students in Mannheim is between 109 and 125.*
+
+Answer: True. As we take repeated samples we can say that on average 95 times out of 100 will include the true population mean. Therefore it should help us to determine the true population mean.
+
+> *We are 95% confident that the mean IQ of all students in this sample is between 109 and 125.*
+
+Answer: False. In this sample the mean is fixed. So we are 100% sure.
+
+> *If we repeated the experiment a large number of times, there is a 95% chance that the mean IQ of Mannheim students is between 109 and 125 in each time.*
+
+Answer: False. As we consider the mean IQ which is independent of the number of draws taking place. Thus, the mean IQ doesn’t change.
+The problem with this Phrase is that the CI does not say something about a 95% chance that the population IQ lies within a range for “each time”.
+
+
+## Part 4: Proportions
+
+*Suppose that a military dictator in an unnamed country holds a plebiscite (a yes/no vote of confidence) and claims that he was supported by 68\% of the voters. A human rights group suspects foul play and hires you to test the validity of the dictator's claim. You have a budget that allows you to randomly sample 180 voters from the country. You collect your sample of 180, and you find that 95 people actually voted yes.*
+
+**4.1 You decide to have a closer look at the sample and explore if there are significant differences between men and women support rates of the dictator. In your sample, 80 respondents are female and 45% of women reported voting *yes*.**
+
+**4.1.1 What is the share of men voting for the dictator?**
+
+```{r Exercise 4_1_1}
+absol_yes = 95
+absol_yes_women = 0.45 * 80
+absol_yes_men = absol_yes - absol_yes_women
+absol_men = 180 - 80
+
+rel_yes_men = absol_yes_men / absol_men
+rel_yes_men
+```
+
+Answer: 59% of men voted yes.
+
+**4.1.2 Calculate the difference between proportions of supporters among men and women and 95% confidence intervals for this difference using simulation. What is your conclusion: do men, on average, tend to support the dictator more than women?**
+
+```{r Exercise 4_1_2}
+set.seed(0)
+nsim = 10000
+se_men = sqrt(rel_yes_men * (1-rel_yes_men) / absol_men)
+p_men = rnorm(nsim, rel_yes_men, se_men)
+
+se_women = sqrt(0.45 * 0.55 / 80)
+p_women = rnorm(nsim, 0.45, se_women)
+
+prop_diff = p_men - p_women
+hist(prop_diff)
+
+quantile(x = prop_diff, probs = c(0.025, 0.975))
+```
+
+Answer: Men are more likely to support the dictator. This answer is based on the CI of men and women who support the dictator. The CI range of men is on average higher than that of women. 
+
+**4.1.3 Calculate the standard error of the difference from simulation. Compare this standard error for proportion difference with analytical one:**
+
+$SE = \sqrt{\frac{p_1(1-p_1)}{n_1} + \frac{p_2(1-p_2)}{n_2}}$
+
+```{r Exercise 4_1_3}
+#analytical
+# rel_yes_men * (1-rel_yes_men) = binominal variance of men
+se = sqrt((rel_yes_men * (1-rel_yes_men) / absol_men) + (0.45 * 0.55)/ 80)
+print('SE of the analytical approach')
+se
+
+#simulation
+print('SE of the simulation approach')
+sd(prop_diff)
+```
+
+Answer: The standard error for proportion difference is way bigger than the analytical one.
+
+
+**4.2 (Optional) Given the information from the sample, what is the probability that at least 68\% of the population voted yes?**
+
+
+```{r Exercise 4_2}
+mean = 95/180
+se = sqrt((95/180)*(1-95/180) / 180)
+1- pnorm(0.68, mean, se)
+```
+
+
+**4.3 (Optional) What is the probability that a majority of people in the country support the dictator?**
+
+```{r Exercise 4_3}
+1 - pnorm(0.5, mean, se)
+```
+
+
+# R code
+
+<!-- The chunk below will print out the code from all the chunks in the document, even if you chose to hide chunks in the main text with `echo=FALSE` chunk option or `include=FALSE` option. You do not need to put any code in this chunk manually: it will gather code from other chunks automatically. -->
+
+```{r ref.label=knitr::all_labels(), echo=TRUE, eval=FALSE}
+```

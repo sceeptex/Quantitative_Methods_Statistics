@@ -1,0 +1,84 @@
+---
+title: "Quantitative Methods in Political Science - Homework 5"
+subtitle: "Peer Review of Homework 4"
+author:
+  - "Tobias Fechner "
+  - "Simran Suresh Bhurat"
+date: "Due: October 19, 2021"
+output:
+  pdf_document:
+    toc: no
+  html_document:
+    toc: no
+---
+
+## Introduction
+
+The following feedback is for homework assignment 4 for the course "Quantitative Methods in Political Science". 
+
+## Feedback to Exercise 1
+
+#### Reviewer 1 Feedback
+The formulas as well as the calculation are right (LaTeX-code looks nice)
+
+#### Reviewer 2 Feedback
+Looks perfect to me.
+
+
+## Feedback to Exercise 2
+
+### Exercise 2.1 - 2.3
+
+#### Reviewer 1 Feedback
+The answers are correct. Using selections and filters is more complex than using a data.frame. All the functions are already implemented in this format. The stargazer table looks good. The quantile calculation is right. Nice comaprison between the linear model and the IQR. 
+
+#### Reviewer 2 Feedback
+Well organised code and accurately described the solutions.
+
+
+### Exercise 2.4 - 2.5
+
+#### Reviewer 1 Feedback
+The scatter plot is correct. It would be better to transform the x-axis to the 
+true values of the GDP. 
+The short country names are hard to read in such a plot. It would make sense to create a bigger plot or smaller country names. 
+Furthermore I don't understand why there is a grey area close to the linear graph.
+
+
+#### Reviewer 2 Feedback
+The demonstration of GDP and the CPI score is unambiguous(easily understood).
+
+### Exercise 2.6 - 2.8
+
+#### Reviewer 1 Feedback
+In this case the labeling looks better and is less cluttered.
+It would make sense to use a logged scale on the X-Axis too, 
+because now it is hard to relate from the scatter plot to the residual plot. 
+
+The conclusion of under and overestimating is right.
+This can be confusing because a positive residual means that the model is underestimating the result.
+
+#### Reviewer 2 Feedback
+Good graphical representation using ggplot. 
+
+## Feedback on presentation of results
+
+#### Reviewer 1 Feedback
+
+I think your explanations are straight forward and easy to understand and give a good explanation of the data shown before.
+
+#### Reviewer 2 Feedback 
+All the graphs are clean & well-designed along with the labels which clearly depicts the axes. The graphs are self explanatory and instructive. 
+
+
+## General Feedback
+
+#### Reviewer 1 Feedback
+
+In summary you delivered a very good assignment. Your code is easy to read and the descriptions fit very well with the results. 
+
+#### Reviewer 2 Feedback 
+I would like to appreciate the critical thinking around this assignment. All the graphs are informative and all the solutions are perfect according to me. Great work! keep it up.
+
+Replace this text with a final summary that describes what you like and dislike about the work presented to you. Evaluate whether the work needs minor or major revisions made. Finish by stating what you perceive are the most important changes. Be kind and constructive in your feedback!
+

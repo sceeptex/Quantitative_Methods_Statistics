@@ -1,0 +1,1069 @@
+---
+title: "QM 2021 Week 12: Count Models"
+author:
+  - "Oliver Rittmann"
+  - "Viktoriia Semenova"
+  - "David Grundmanns"
+date: "November 25 | 29 | 30, 2021"
+output:
+  html_document:
+    toc: yes
+    number_sections: yes
+    toc_float: yes
+    highlight: tango
+    css: css/lab.css
+    self_contained: yes
+  pdf_document:
+    toc: yes
+bibliography: citations.bib # this adds a bibliography file from the repo
+biblio-style: apsr # this selects the style 
+editor_options: 
+  chunk_output_type: inline
+  markdown: 
+    wrap: sentence
+---
+
+------------------------------------------------------------------------
+
+## Today we will learn: {.unnumbered}
+
+1.  MLE: Poisson Regression
+2.  Poisson and Negative Binomial in GLM
+3.  Likelihood Ratio Test (Overdispersion)
+4.  Expected Values
+
+In other words, the goals are to:
+
+-   Implement MLE for count models
+-   Use count models with GLM
+-   Compute meaningful quantities of interest
+
+------------------------------------------------------------------------
+
+```{r setup, message=FALSE, warning=FALSE, results='hide'}
+# The first line sets an option for the final document that can be produced from
+# the .Rmd file. Don't worry about it.
+knitr::opts_chunk$set(echo = TRUE,
+                      collapse = TRUE,
+                      out.width="\\textwidth", # for larger figures 
+                      attr.output = 'style="max-height: 200px"',
+                      tidy = 'styler' # styles the code in the output
+                      )
+
+# The next bit is quite powerful and useful. 
+# First you define which packages you need for your analysis and assign it to 
+# the p_needed object. 
+p_needed <-
+  c("ggplot2", "viridis", "MASS", "optimx", "scales", "foreign", 
+    "patchwork", "stargazer", "countreg", "ggridges")
+
+# Now you check which packages are already installed on your computer.
+# The function installed.packages() returns a vector with all the installed 
+# packages.
+packages <- rownames(installed.packages())
+# Then you check which of the packages you need are not installed on your 
+# computer yet. Essentially you compare the vector p_needed with the vector
+# packages. The result of this comparison is assigned to p_to_install.
+p_to_install <- p_needed[!(p_needed %in% packages)]
+# If at least one element is in p_to_install you then install those missing
+# packages.
+if (length(p_to_install) > 0) {
+  install.packages(p_to_install)
+}
+# Now that all packages are installed on the computer, you can load them for
+# this project. Additionally the expression returns whether the packages were
+# successfully loaded.
+sapply(p_needed, require, character.only = TRUE)
+
+# This is an option for stargazer tables
+# It automatically adapts the output to html or latex,
+# depending on whether we want a html or pdf file
+stargazer_opt <- ifelse(knitr::is_latex_output(), "latex", "html")
+
+# Don't worry about this part: it ensures that if the file is knitted to html,
+# significance notes are depicted correctly
+if (stargazer_opt == "html"){
+  fargs <- formals(stargazer)
+  fargs$notes.append = FALSE
+  fargs$notes = c("<sup>&sstarf;</sup>p<0.1; <sup>&sstarf;&sstarf;</sup>p<0.05; <sup>&sstarf;&sstarf;&sstarf;</sup>p<0.01")
+  formals(stargazer) <- fargs
+}
+
+# only relevant for ggplot2 plotting
+# setting a global ggplot theme for the entire document to avoid 
+# setting this individually for each plot 
+theme_set(theme_classic() + # start with classic theme 
+  theme(
+    plot.background = element_blank(),# remove all background 
+    plot.title.position = "plot", # move the plot title start slightly 
+    legend.position = "bottom" # by default, put legend on the bottom
+  ))
+
+```
+
+
+
+# MLE: Poisson Regression {.tabset}
+
+What first?
+We start with some fake data...
+
+We need a population (here 10000 observations).
+
+```{r poisson-1}
+n <- 10000
+
+# We set true parameters for \beta_0 and \beta_1
+
+beta0 <- 1
+beta1 <- 0.5
+
+# and generate an independent variable X
+set.seed(2021)
+X <- rnorm(n, 0, 1)
+```
+
+Now we can generate `lambda` (aka $\lambda$ on slide 13) via the *exponential response function*:
+
+$$
+\lambda_i = \exp(X_i\beta) = \exp(\mu_i) \Rightarrow \lambda_i > 0
+$$
+
+Here `mu` is the linear predictor.
+As with logit and probit models last week, we need to transform the linear predictor, but this time with a different response function (in other words, our model uses a different *link function*).
+The *exponential response function* (aka exponential inverse link function) ensures that for any value of $X$ and $\beta$, the systematic component is reparameterized to be greater than 0.
+
+```{r poisson-2}
+exp_resp <- function(beta0, beta1, X){
+  lambda <- exp(beta0 + beta1*X)
+  return(lambda)
+}
+
+lambda <- exp_resp(beta0 = beta0, 
+                   beta1 = beta1, 
+                   X = X)
+```
+
+Let's quickly plot what we just did:
+
+```{r poisson-3}
+par(mfrow = c(1, 2), las = 1)
+
+# Systematic component: linear predictor
+plot(x = X,
+     y = beta0 + beta1*X,
+     pch = 19,
+     cex = 0.5,
+     col = viridis(1, 0.5),
+     main = "Simulated linear predictor",
+     font.main = 1,
+     cex.main = 0.8,
+     ylab = expression(mu[i]),
+     xlab = expression(X[i]),
+     bty = "n")
+text(x = 1.5,
+     y = -0.3,
+     labels = expression(mu[i] == X[i] * beta))
+
+# Systematic component: lambda 
+plot(x = X,
+     y = lambda,
+     pch = 19,
+     cex = 0.5,
+     col = viridis(1, 0.5),
+     main = expression(paste("Simulated ", lambda)),
+     font.main = 1,
+     cex.main = 0.8,
+     ylab = expression(lambda[i]),
+     xlab = expression(X[i]),
+     bty = "n")
+text(x = -1,
+     y = 7.85,
+     labels = expression(lambda[i] == exp(mu[i])))
+```
+
+Finally, we can get Y from the underlying *Poisson* distribution.
+Remember that it only has one parameter $\lambda$, so-called shape parameter, which defines both the center and the spread of the values.
+Remember `r`, `d`, `q`, `p`?
+
+```{r poisson-4}
+par(las = 1)
+
+Y <- rpois(n, lambda)
+
+summary(Y)
+barplot(table(factor(Y, levels = min(Y):max(Y))), # add 0 for skipped values
+        col = viridis(1), 
+        border = FALSE,
+        main = "Distribution of Y")
+```
+
+Let's add this step to the plot above:
+
+## Base R {.unnumbered}
+
+```{r poisson-5}
+par(mfrow = c(1, 3), las = 1)
+
+# Systematic component: linear predictor
+plot(x = X,
+     y = beta0 + beta1*X,
+     pch = 19,
+     cex = 0.5,
+     col = viridis(1, 0.5),
+     main = "Simulated linear predictor",
+     font.main = 1,
+     cex.main = 0.8,
+     ylab = expression(mu[i]),
+     xlab = expression(X[i]),
+     bty = "n")
+text(x = 1.5,
+     y = 0.7,
+     labels = expression(mu[i] == X[i] * beta))
+
+# Systematic component: lambda 
+plot(x = X,
+     y = lambda,
+     pch = 19,
+     cex = 0.5,
+     col = viridis(1, 0.5),
+     main = expression(paste("Simulated ", lambda)),
+     font.main = 1,
+     cex.main = 0.8,
+     ylab = expression(lambda[i]),
+     xlab = expression(X[i]),
+     ylim = range(Y),
+     bty = "n")
+text(x = -1,
+     y = 15,
+     labels = expression(lambda[i] == exp(mu[i])))
+
+# observed values
+plot(x = X,
+     y = jitter(Y),
+     pch = 19,
+     cex = 0.5,
+     col = viridis(2, 0.5)[2],
+     main = "Observed Y",
+     font.main = 1,
+     cex.main = 0.8,
+     ylab = "Y",
+     xlab = expression(X[i]),
+     ylim = range(Y),
+     bty = "n")
+points(x = X,
+       y = lambda,
+       pch = 19,
+       cex = 0.5,
+       col = viridis(2, 0.5)[1])
+text(x = -1,
+     y = 15,
+     labels = expression(paste("Y ~ Poisson", (y[i] *"|"*lambda[i]))))
+
+```
+
+## ggplot2 {.unnumbered}
+
+```{r poisson-6, warning=FALSE}
+# Systematic component: LP
+syst <- ggplot() +
+  geom_point(aes(x = X, y = beta0 + beta1*X),
+                 color = viridis(1, 0.5)) +
+  labs(x = expression(X[i]),
+       y = expression(mu[i]),
+       title = "Linear Predictor") +
+  annotate("text",
+           label = expression(mu[i] == X[i] * beta),
+           x = 1.5, y = 0.7,
+           hjust = 0) 
+
+# Systematic component: Lambda
+syst2 <- ggplot() +
+  geom_point(aes(x = X, y = lambda),
+                 color = viridis(1, 0.5)) +
+  labs(x = expression(X[i]),
+       y = expression(lambda[i]),
+       title = expression(paste("Simulated ", lambda))) +
+  annotate("text",
+           label = expression(lambda[i] == exp(mu[i])),
+           x = -1, y = 15) +
+  ylim(range(Y))
+
+yhat <- ggplot() +
+  geom_point(aes(x = X, y = Y), color = viridis(2, 0.5)[2]) +
+  geom_point(aes(x = X, y = lambda), color = viridis(2, 0.5)[1]) +
+  labs(x = expression(X[i]),
+       y = expression(Y[i]),
+       title = "Observed Y") +
+  annotate("text",
+           label = expression(paste("Y ~ Poisson", (y[i] *"|"*lambda[i]))),
+           x = -1, y = 15)
+
+syst + syst2 + yhat +
+  plot_annotation(title = "Simulated Quantities") &
+  scale_color_viridis(direction = -1) & theme(legend.position = "none")
+```
+
+# Poisson MLE
+
+The Poisson probability function for a single observation $i$:
+
+$$
+f_{\text{Poisson}}(y_{i}|\lambda) = 
+\begin{cases}
+  \dfrac{e^{-\lambda}\lambda^{y_{i}}}{y_{i}!} & 
+    \text{for } \lambda > 0\text{ and }y_{i}=0,\,1,\ldots\\
+  0 & 
+    \text{otherwise}
+\end{cases}
+$$
+
+The probability density of all the data (i.e., $N$ observations, given that $Y_i$ and $Y_j$ are independent conditional on $X$ for all $i \neq j$ and identically distributed) is the product of all $N$ individual observations:
+
+$$
+\Pr(Y|\lambda) = \prod_{i=1}^{N} \frac{e^{-\lambda}\lambda^{y_{i}}}{y_{i}!} 
+$$
+
+From this, we can obtain the likelihood function.
+But as usual, we prefer the (shortened) log-likelihood:
+
+$$
+\ln L(\lambda|Y)  \propto \sum_{i=1}^{n} (y_{i} ln(\lambda_i) - \lambda_i)
+$$
+
+Replacing $\lambda$ with the reparametrized linear predictor $\lambda = e^{\mu_i} = e^{X_{i}\beta}$ gives us the log-likelihood function of our model:
+
+$$
+\ln L(\beta|Y) \propto \sum_{i=1}^{n} (y_{i} X_{i}\beta -e^{X_{i}\beta})\\
+$$
+
+Now we can program the Poisson log-likelihood function (cf. slide 13):
+
+```{r poisson-7}
+## Poisson MLE
+# Log Likelihood
+pois_ll <- function(X, Y, theta) {
+  beta0 <- theta[1]
+  beta1 <- theta[2]
+  
+  logl <- sum(Y * (beta0 + beta1 * X) - exp(beta0 + beta1 * X))
+  return(logl)
+}
+```
+
+As the linear predictor `mu` is reparameterized with `exp()`, we can again estimate `theta` unbounded, but ensure that counts will not be negative.
+
+Find the MLE using `optimx`:
+
+```{r poisson-8}
+# Starting Values
+stval <- c(0, 0)
+
+# Optimize
+res <-
+  optimx(
+    stval,
+    pois_ll ,
+    Y = Y,
+    X = X,
+    control = list(maximize = T)
+  )
+res # check results
+```
+
+> (How) Can we interpret those coefficients?
+
+## Eck and Hultman 2007: One-sided violence against civilians {.unnumbered}
+
+Load the `eck_rep.dta`, a replication dataset for @eck_hultman_2007.
+
+![Eck & Hultman, 2007, Abstract](images/Eck_Hultman_abstract.png)
+
+```{r poisson-9}
+dta <- read.dta("raw-data/eck_rep.dta", convert.factors = FALSE)
+
+#  Some data preparation
+dta$os_best[dta$os_best == 500000] <- NA # Rwanda
+
+# Omit NAs (as our log-likelihood can't handle missings)
+dta2 <- na.omit(dta[,c("os_best", "auto")])
+
+```
+
+Let's estimate the effect of autocracy on one-sided violence via numerical maximization using `optimx`
+
+```{r poisson-10}
+# Maximize log-likelihood function
+res2 <-
+  optimx(
+    stval,
+    pois_ll,
+    Y = dta2$os_best,
+    X = dta2$auto,
+    control = list(maximize = T)
+  )
+res2
+```
+
+Find out how well we did.
+Compare it with the built-in `glm` Poisson:
+
+```{r poisson-11}
+m1 <- glm(os_best ~ auto, dta2, family = "poisson")
+
+coef(m1)
+
+# Compare to our likelihood function
+res2
+```
+
+# Poisson and Negative Binomial in GLM
+
+We are going to replicate model 4, p.243 in @eck_hultman_2007.
+
+![Eck & Hultman, 2007, Table IV, p.243](images/Eck_Hultman_table_iv.png)
+
+```{r negbin-1, collapse=FALSE}
+# We start with a Poisson Model
+m1 <- glm(
+  os_best ~ intensity_dyad + auto + demo + govt + prior_os,
+  data = dta,
+  family = "poisson"
+)
+summary(m1)
+
+# Negative Binomial Model
+m2 <-
+  glm.nb(
+    os_best ~ intensity_dyad + auto + demo + govt + prior_os,
+    data = dta,
+    control = glm.control(maxit = 100)
+  )
+summary(m2)
+
+# control=glm.control(maxit=100) increases the number of maximum iterations
+# increase it when you see the warning: "glm.fit: algorithm did not converge"
+```
+
+Make a nice looking Latex table of both models:
+
+```{r negbin-2, results='asis', message=FALSE}
+stargazer(
+  list(m1, m2),
+  out = "table_lab.tex",
+  title = "Regression Results",
+  notes = "Excluding observation Rwanda 1994",
+  intercept.bottom = TRUE,
+  covariate.labels = c(
+    "Civil War",
+    "Autocracy",
+    "Democracy",
+    "Government",
+    "One sided Violence t-1",
+    "Constant"
+  ),
+  dep.var.labels = c("Number killed in one-sided violence"),
+  table.placement = "H", # latex output, keep the figure at exactly Here in text
+  type = stargazer_opt
+)
+```
+
+# Likelihood Ratio Test (Overdispersion)
+
+The likelihood ratio test is a test to compare two models, one of which is a special case of the other (Restricted and Unrestricted Model).
+
+Let $\mathcal{L_R}$ be the likelihood for the null, *restricted* model with $r$ parameters and $\mathcal{L_R}$ be the likelihood for the alternative, *unrestricted* model with $u$ parameters, $u>r$.
+One can show that when $u \to \infty$, $-2 \log\left(\dfrac{\mathcal{L_R}}{\mathcal{L_U}}\right)$ converges to the $\chi^2$ distribution with $k = u - r$ degrees of freedom.
+See also @degroot_schervish_2012: pp. 543--544.
+
+Thus, $LR = -2 \cdot \log(\mathcal{\hat L_r}) + 2 \cdot \log(\mathcal{\hat L_u}) = 2(\log \mathcal{\hat L_u} - \log \mathcal{\hat L_r})$.
+
+One could think of Poisson and Negative Binomial Models as approximately nested, and the LR test is often applied to decide between the Poisson and Negative Binomial specifications.
+
+```{r lrt-1}
+L1 <- logLik(m1) # Log Likelihood of model 1
+L2 <- logLik(m2) # Log Likelihood of model 2
+
+LRT <- -2 * L1 + 2 * L2 # converges to chi^2 distribution
+
+# Reject H0 if ... What is our H0 here?
+LRT > qchisq(0.95, df = 1) # why df = 1? 
+```
+```{r lrt-2}
+#create density curve
+plot(
+  x = seq(0, 20, length.out = 100),
+  y = dchisq(seq(0, 20, length.out = 100), df = 1),
+  main = 'Chi-Square Distribution (df = 1)',
+  ylab = 'Density',
+  lwd = 2,
+  xlab = "X",
+  las = 1,
+  type = "l"
+)
+
+# abline(v = LRT)
+abline(v =  qchisq(0.95, df = 1), col = "red")
+```
+
+We can also use Likelihood ratio test for other examples of nested models, for instance to examine the differences in the specification of the systematic component.
+
+# Quantities of Interest
+
+As usually we can interpret the results better if we look at meaningful quantities of interest.
+
+We look at the model from the @eck_hultman_2007 paper.
+
+```{r negbin-3}
+m2 <-
+  glm.nb(
+    os_best ~ intensity_dyad + auto + demo + govt + prior_os,
+    data = dta,
+    control = glm.control(maxit = 100)
+  )
+```
+
+## Simulate Parameters
+
+Remember the steps?
+
+Steps for Simulating Parameters (Estimation Uncertainty):
+
+1.  Get the coefficients from the regression (`gamma_hat`)
+2.  Get the variance-covariance matrix (`V_hat`)
+3.  Set up a multivariate normal distribution `N(gamma_hat,V_hat)`
+4.  Draw from the distribution `nsim` times
+
+```{r sim-1}
+nsim <- 1000
+
+# 1. get the coefficients
+gamma_hat <- coef(m2)
+
+# 2. Get the variance-covariance matrix
+V_hat <- vcov(m2)
+
+# 3. Set up a multivariate normal distribution N(gamma_hat, V_hat)
+# 4. Draw from the distribution nsim times
+S <- mvrnorm(nsim, gamma_hat, V_hat)
+```
+
+## Calculate Expected Values {.tabset}
+
+*Next step*: Set up interesting scenarios.
+
+The order of coefficients is:
+
+```{r sim-1-1}
+names(gamma_hat)
+```
+
+Anocracies:
+
+```{r sim-2}
+scenario1 <- cbind(
+  1, # Intercept
+  median(dta$intensity_dyad, na.rm = TRUE), # median of civil war (dyadic)
+  0,  # autocracy
+  0, # democracy
+  median(dta$govt, na.rm = TRUE), # median of one-sided violence by government
+  mean(dta$prior_os, na.rm = TRUE) # mean of prior one-sided violence
+) 
+colnames(scenario1) <- names(gamma_hat)
+scenario1
+```
+
+Democracies:
+
+```{r sim-3}
+scenario2 <- scenario1 # copy the existing baseline scenario 
+scenario2[which(colnames(scenario2) == "demo")] <- 1 # change one value 
+scenario2
+```
+
+Autocracies:
+
+```{r sim-4}
+scenario3 <- scenario1
+scenario3[which(colnames(scenario3) == "auto")] <- 1
+scenario3
+```
+
+Calculate the linear predictor:
+
+```{r sim-5}
+Xbeta1 <- S %*% t(scenario1)
+Xbeta2 <- S %*% t(scenario2)
+Xbeta3 <- S %*% t(scenario3)
+```
+
+To get expected values for lambda, we need to plug in the `Xbeta` values into the response function.
+
+```{r sim-6}
+lambda1 <- exp(Xbeta1)
+lambda2 <- exp(Xbeta2)
+lambda3 <- exp(Xbeta3)
+```
+
+*Now we can add an additional step:*
+
+Plug the `lambda` and `theta` into the negative binomial distribution and take many draws from it (i.e. get the predicted values).
+And then we average over the fundamental uncertainty for expected values.
+Please have a look at the @king_et_al_2000 article from Week 7 again for further information.
+
+Get the `theta`:
+
+```{r sim-7}
+theta <- m2$theta
+
+exp_ano <-
+  sapply(lambda1, function(x)
+    mean(rnbinom(1000, size = theta, mu = x)))
+exp_demo <-
+  sapply(lambda2, function(x)
+    mean(rnbinom(1000, size = theta, mu = x)))
+exp_auto <-
+  sapply(lambda3, function(x)
+    mean(rnbinom(1000, size = theta, mu = x)))
+
+#we could have also done this in a for-loop
+# mean.auto <- rep(NA, length(lambda1))
+# 
+# for (i in 1:length(lambda1)) {
+#   mean.auto[i] <- mean(rnbinom(1000, size = theta, mu = lambda1[i]))
+# }
+
+summary(as.vector(lambda3)) # as.vector ensures the horizontal summary output 
+summary(exp_auto)
+```
+
+Now we want to plot it.
+
+### Base R {.unnumbered}
+
+```{r sim-8}
+d1 <- density(exp_auto)
+d2 <- density(exp_demo)
+d3 <- density(exp_ano)
+
+plot(d3, 
+     main = "Expected Killings in Democracies, Autocracies and Anocracies",
+     xlab = "Expected killings",
+     yaxt = "n", ylab = "",
+     xlim = c(0, max(c(exp_auto, exp_demo, exp_ano))), # flexible limit
+     type = "n",
+     bty = "n",
+     sub = "by rebel groups in civil war situation with 48 killings in the prior year (mean value)")
+polygon(d3, col="#ff000050", border="black") # red: Anocracy
+polygon(d2, col="#0000ff50", border="black") # blue: Democracy
+polygon(d1, col="#00ff5550", border="black") # green: Autocracy
+legend("topright",
+       c("Anocracy", "Democracy", "Autocracy"),
+       fill= c("#ff000050", "#0000ff50", "#00ff5550"),
+       col = c("black", "green", "red"), bty = "n")
+```
+
+### ggplot2 {.unnumbered}
+
+We want to make an Expected Values Plot
+
+```{r sim-9}
+df <- data.frame(exp_values = c(exp_auto, exp_ano, exp_demo),
+                 id = factor(
+                   rep(c("Autocracy", "Anocracy", "Democracy"), each = 1000),
+                   levels = c("Autocracy", "Anocracy", "Democracy")
+                 ))
+```
+
+```{r sim-10}
+ggplot(df, aes(x = exp_values, fill = id)) +
+  geom_density(alpha = 0.4) +
+  guides(fill = guide_legend(title = "")) +
+  labs(x = "Expected Killings",
+       y = "",
+       title = "Expected Killings in Democracies, Autocracies and Anocracies",
+       subtitle = "by rebel groups in civil war situation with 48 killings in the prior year (mean value)",
+       caption = "Data Source: Eck & Hultman (2007)") +
+  theme(axis.line.y = element_blank(),
+        axis.ticks.y = element_blank(),
+        axis.text.y = element_blank()) +
+  scale_x_continuous(limits = c(0, max(df$exp_values))) 
+
+# or another very nice way to avoid overlapping (often happens when groups > 3)
+ggplot(df, aes(x = exp_values, y = id, fill = id)) +
+  ggridges::geom_density_ridges(alpha = 0.7) +
+  xlab("Expected Killings") +
+  ylab("") +
+  scale_fill_viridis_d() +
+  coord_cartesian(clip = "off") +
+  scale_y_discrete(expand = c(0, 0)) +
+  ggridges::theme_ridges(grid = FALSE, center_axis_labels = TRUE) +
+  theme(legend.position = "none",
+        plot.title.position = "plot") +
+  labs(x = "Expected Killings",
+       y = "",
+       title = "Expected Killings in Democracies, Autocracies and Anocracies",
+       subtitle = "by rebel groups in civil war situation with 48 killings in the prior year (mean value)",
+       caption = "Data Source: Eck & Hultman (2007)") 
+```
+
+# Exercise Section: First Differences {.unnumbered}
+
+In their paper Eck and Hultman also want to look at differences between killings by governments (`govt` = 1) and rebels.
+
+Now it's your turn.
+You will run similar models and calculate first differences between (a) autocracies and democracies, and (b) autocracies and anocracies, to look at the substantive effects.
+
+Eck and Hultman subset the data to government and rebel killings and run the previous model separately on these two subsets.
+
+> *Any other ideas how we could incorporate this into one model?*
+
+## Estimate models {.unnumbered}
+
+Start by estimating the model separately, first with the subsetted data on government killings, second with the subsetted data on rebel killings.
+
+```{r fd-1, error = TRUE, warning=TRUE}
+# model on government killings
+m3 <-
+  glm.nb(
+    os_best ~ intensity_dyad + auto + demo + prior_os,
+    data = dta[dta$govt == 1,], # data subsetted to government killings
+    control = glm.control(maxit = 100)
+  )
+
+# model on rebel killings
+m4 <-
+  glm.nb(
+    os_best ~ intensity_dyad + auto + demo + prior_os,
+    data = dta[dta$govt == 0,],
+    control = glm.control(maxit = 100)
+  )
+
+```
+
+## Simulate Parameters {.unnumbered}
+
+Let's go through the simulation steps again.
+
+1.  Get the coefficients from the regression (`gamma_hat`).
+2.  Get the variance-covariance matrix (`V_hat`).
+3.  Set up a multivariate normal distribution `N(beta_hat, V_hat)`.
+4.  Draw from the distribution `nsim` times.
+
+```{r fd-2, error = T}
+# 1. Get the coefficients from the regression (gamma_hat)
+gamma_hat_m3 <- coef(m3)
+
+# 2. Get the variance-covariance matrix (V_hat)
+V_hat_m3 <- vcov(m3)
+
+# 3. Set up a multivariate normal distribution N(gamma_hat,V_hat)
+# 4. Draw from the distribution nsim times
+nsim <- 1000
+S_m3 <- mvrnorm(nsim, gamma_hat_m3, V_hat_m3)
+
+# Set up interesting scenarios.
+
+# (Intercept)
+# intensity_dyad
+# auto
+# demo
+# prior_os
+
+scenario1 <-
+  cbind(1, 1, 1, 0, mean(dta$prior_os, na.rm = T)) # Autocracy
+scenario2 <-
+  cbind(1, 1, 0, 1, mean(dta$prior_os, na.rm = T)) # Democracy
+scenario3 <-
+  cbind(1, 1, 0, 0, mean(dta$prior_os, na.rm = T)) # Anocracy
+
+
+Xbeta1_m3 <- S_m3 %*% t(scenario1)
+Xbeta2_m3 <- S_m3 %*% t(scenario2)
+Xbeta3_m3 <- S_m3 %*% t(scenario3)
+
+# To get expected values for lambda, we need to plug in the Xbeta values into the response function
+
+lambda1_m3 <- exp(Xbeta1_m3)
+lambda2_m3 <- exp(Xbeta2_m3)
+lambda3_m3 <- exp(Xbeta3_m3)
+
+
+# Now we need an additional step: Plug the lambda and theta into the negative binomial distribution.
+# And then we average over the fundamental uncertainty for expected values.
+
+theta_m3 <- m3$theta
+
+exp_scenario1_m3 <-
+  sapply(lambda1_m3, function(x)
+    mean(rnbinom(1000, size = theta_m3, mu = x)))
+exp_scenario2_m3 <-
+  sapply(lambda2_m3, function(x)
+    mean(rnbinom(1000, size = theta_m3, mu = x)))
+exp_scenario3_m3 <-
+  sapply(lambda3_m3, function(x)
+    mean(rnbinom(1000, size = theta_m3, mu = x)))
+
+exp_values_m3 <-
+  c(exp_scenario1_m3, exp_scenario2_m3, exp_scenario3_m3)
+df_m3 <- data.frame(exp_values_m3)
+```
+
+We need to do the same thing for model 4.
+
+```{r fd-3, error = T}
+nsim <- 1000
+
+gamma_hat_m4 <- coef(m4)
+
+V_hat_m4 <- vcov(m4)
+
+S_m4 <- mvrnorm(nsim, gamma_hat_m4, V_hat_m4)
+
+# Set up interesting scenarios.
+
+# (Intercept)
+# intensity_dyad
+# auto
+# demo
+# prior_os
+
+scenario1 <-
+  cbind(1, 1, 1, 0, mean(dta$prior_os, na.rm = T)) # Autocracy
+scenario2 <-
+  cbind(1, 1, 0, 1, mean(dta$prior_os, na.rm = T)) # Democracy
+scenario3 <-
+  cbind(1, 1, 0, 0, mean(dta$prior_os, na.rm = T)) # Anocracy
+
+
+Xbeta1_m4 <- S_m4 %*% t(scenario1)
+Xbeta2_m4 <- S_m4 %*% t(scenario2)
+Xbeta3_m4 <- S_m4 %*% t(scenario3)
+
+# To get expected values for lambda, we need to plug in the Xbeta values into the response function
+
+lambda1_m4 <- exp(Xbeta1_m4)
+lambda2_m4 <- exp(Xbeta2_m4)
+lambda3_m4 <- exp(Xbeta3_m4)
+
+
+# Now we need an additional step: Plug the lambda and theta into the negative binomial distribution.
+# And then we average over the fundamental uncertainty for expected values.
+
+theta_m4 <- m4$theta
+
+exp_scenario1_m4 <-
+  sapply(lambda1_m4, function(x)
+    mean(rnbinom(1000, size = theta_m4, mu = x)))
+exp_scenario2_m4 <-
+  sapply(lambda2_m4, function(x)
+    mean(rnbinom(1000, size = theta_m4, mu = x)))
+exp_scenario3_m4 <-
+  sapply(lambda3_m4, function(x)
+    mean(rnbinom(1000, size = theta_m4, mu = x)))
+
+exp_values_m4 <-
+  c(exp_scenario1_m4, exp_scenario2_m4, exp_scenario3_m4)
+df_m4 <- data.frame(exp_values_m4)
+```
+
+Now we have everything to calculate the first differences.
+Continue to calculate the first differences between different scenarios for model 3 and model 4.
+
+Calculate the following first differences for both models:
+
+$$
+FD_{\text{Autocracy-Democracy}} = E(Y | X_{\text{Autocracy}}) - E(Y | X_{\text{Democracy}})
+$$ 
+
+and
+
+$$
+FD_{\text{Autocracy-Anocracy}} = E(Y | X_{\text{Autocracy}}) - E(Y | X_{\text{Anocracy}})
+$$
+
+```{r fd-4, error = T}
+# Model 3: Killings by Rebel Groups
+df_m3$fd_auto_dem <- exp_scenario1_m3 - exp_scenario2_m3 # Autocracy - Democracy
+df_m3$fd_auto_ano <- exp_scenario1_m3 - exp_scenario3_m3 # Autocracy - Anocracy
+
+# Model 4: Killings by Rebel Groups
+df_m4$fd_auto_dem <- exp_scenario1_m4 - exp_scenario2_m4 # Autocracy - Democracy
+df_m4$fd_auto_ano <- exp_scenario1_m4 - exp_scenario3_m4 # Autocracy - Anocracy
+```
+
+Summarize the results with the Median & 95% Confidence Interval of First Differences
+
+```{r fd-5, error = T}
+# Autocracy - Democracy M3 (by Government)
+median_fd_auto_dem_m3 <- median(df_m3$fd_auto_dem)
+ci_fd_auto_dem_m3 <- quantile(df_m3$fd_auto_dem, probs = c(0.025, 0.975))
+
+# Autocracy - Anocracy M3 (by Government)
+median_fd_auto_ano_m3 <- median(df_m3$fd_auto_ano)
+ci_fd_auto_ano_m3 <- quantile(df_m3$fd_auto_ano, probs = c(0.025, 0.975))
+
+# Autocracy - Democracy M6 (by Rebel Groups)
+# dfm6$fd_auto_dem
+median_fd_auto_dem_m4<- median(df_m4$fd_auto_dem)
+ci_fd_auto_dem_m4 <- quantile(df_m4$fd_auto_dem, probs = c(0.025, 0.975))
+
+# Autocracy - Democracy M6 (by Rebel Groups)
+median_fd_auto_ano_m4 <- median(df_m4$fd_auto_ano)
+ci_fd_auto_ano_m4 <- quantile(df_m4$fd_auto_ano, probs = c(0.025, 0.975))
+```
+
+## Plot first differences {.unnumbered .tabset}
+
+### Base R {.unnumbered}
+
+```{r fd-6, error = T}
+cis <- rbind(ci_fd_auto_dem_m3,
+             ci_fd_auto_ano_m3,
+             ci_fd_auto_dem_m4,
+             ci_fd_auto_ano_m4)
+
+col <- c("black", "black", "grey55", "grey55")
+
+# start plotting
+par(mar = c(5, 1, 4, 7) + .1)
+plot(
+  y = c(4:1),
+  x = c(
+    median_fd_auto_dem_m3,
+    median_fd_auto_ano_m3,
+    median_fd_auto_dem_m4,
+    median_fd_auto_ano_m4
+  ),
+  cex = 1.5,
+  xlab = 'First Difference and 95%-CI of Expected Killings
+     in civil war situation with 48 killings in the prior year (mean)',
+  col = col,
+  ylab = '',
+  yaxt = "n",
+  xlim = c(-60, 100),
+  ylim = c(0.5 , 4.5),
+  pch = 19,
+  main = 'First Differences of Expected Killings
+Baseline: Autocracy',
+bty = "n"
+)
+axis(
+  4,
+  at = c(4:1),
+  labels = c("Democracy", "Anocracy", "Democracy", "Anocracy"),
+  las = 2
+)
+segments(
+  x0 = c(cis[1:4, 1]),
+  y0 = c(4:1),
+  x1 = c(cis[1:4, 2]),
+  y1 = c(4:1),
+  col = c(col[1:4]),
+  lwd = 2.3
+)
+segments(
+  x0 = 0,
+  y0 = 0,
+  x1 = 0,
+  y1 = 5,
+  lty = "dashed"
+)
+legend(
+  "topleft",
+  c("by Government", "by Rebel Groups"),
+  lty = 1,
+  pch = 19,
+  lwd = 2,
+  col = c(col[1], col[3]),
+  bty = "n"
+)
+```
+
+### ggplot2 {.unnumbered}
+
+```{r fd-7, error = T}
+# prepare results data for plot
+y <- c(4:1)
+x <- c(
+    median_fd_auto_dem_m3,
+    median_fd_auto_ano_m3,
+    median_fd_auto_dem_m4,
+    median_fd_auto_ano_m4
+)
+group <- c(rep("by Government", 2), rep("by Rebel Groups", 2))
+cis <- rbind(ci_fd_auto_dem_m3,
+             ci_fd_auto_ano_m3,
+             ci_fd_auto_dem_m4,
+             ci_fd_auto_ano_m4)
+
+results <- as.data.frame(cbind(y,x,cis))
+colnames(results)[3:4] <- c("lower","upper")
+
+# store plot
+plot <- ggplot(results, aes(x = y, y = x)) +
+  labs(x = "",
+       y = "First Difference and 95%-CI of Expected Killings
+     in civil war situation with 48 killings in the prior year (mean)",
+       title = "First Differences of Expected Killing (Baseline: Autocracy)",
+       color = "")  +
+  geom_point(aes(x = y,
+                 y = x,
+                 color = group), size = 4) +
+  geom_linerange(aes(x = y, 
+                     ymin = lower,
+                     ymax = upper,
+                     color = group)) +
+scale_y_continuous(limits = c(-50, 100)) +
+  scale_x_continuous(breaks = c(4:1), labels = c("Democracy", "Anocracy", "Democracy", "Anocracy")) +
+  coord_flip() # flip x and y 
+
+# print plot
+plot + scale_color_grey(start=0,end=0.45) & theme(legend.position = "right")
+```
+
+# Concluding Remarks {.unnumbered .unlisted}
+
+In your final homework you will further explore count models.
+
+# Appendix {.unnumbered}
+
+## Appendix I: Model Selection Based on Information Criteria {.unnumbered}
+
+We have already discussed the Likelihood ratio test, which is a way to compare nested models.
+There are also alternatives here, which you can see reported in `stargazer` output and also in `summary()` output.
+
+The *Akaike Information Criterion*, or *AIC* for short, is a method for scoring and selecting a model.
+It bases on the likelihood and the complexity of the model, i.e. the number of estimated parameters $k$.
+
+$$AIC = 2k - 2log(\hat{\mathcal L})$$
+
+To use AIC for model selection, we simply choose the model giving smallest AIC over the set of models considered.
+
+```{r AIC-1}
+# Poisson model
+L1 <- as.numeric(logLik(m1)) # Log Likelihood of model 1
+L2 <- as.numeric(logLik(m2)) # Log Likelihood of model 2
+2*length(m1$coefficients) - 2*L1
+AIC(m1) # built-in version 
+
+# Negative Binomial Model
+2*(length(m1$coefficients) + 1) - 2*L2
+AIC(m2) # built-in version 
+```
+
+## Appendix II: Checking Model Fit in Count Models {.unnumbered}
+
+```{r}
+par(mfrow = c(1,2), las = 1)
+rootogram(m1, main = "Poisson Model") 
+rootogram(m2, main = "Negative Binomial Model") 
+```
+
+We can think of the rootogram as relating to the fitted counts - if a bar doesn't reach the zero line, then the model overpredicts a particular count bin, and if the bar exceeds the zero line it under predicts.
+The counts have been transformed with a square root transformation to prevent smaller counts from getting obscured and overwhelmed by larger counts.
+
+In our case, both Poisson models are underpredicting small values and overpredict larger ones.
+On the other hand, negative binomial models fit data better.
+
+# References {.unnumbered .unlisted}

@@ -1,0 +1,220 @@
+/***** Some places to start updating your custom css *****/
+
+/* Import google fonts here */
+
+@import 'https://fonts.googleapis.com/css?family=Source+Sans+Pro:300,400,600,700';
+@import 'https://fonts.googleapis.com/css?family=Source+Code+Pro';
+
+
+/* Body */
+
+body {
+  background-color: white;
+  color: #333;
+  font-family: 'Source Sans Pro', sans-serif;
+	word-wrap: break-word;
+	line-height: 1.7;
+}
+
+/*-------- Main Panel ---------*/
+.topics {
+    width: 75%;
+    overflow-x: auto;
+    padding-bottom: 600px;
+    padding-left: 20px;
+    padding-right: 20px;
+    background-color: white;
+    border-left: 0;
+}
+
+.band {
+    padding-left: 3%;
+    padding-right: 3%;
+    position: relative;
+}
+
+/* Links */
+
+a:link {
+  color: rgba(223, 126, 80);
+}
+
+code {
+  background-color: rgba(179, 182, 185, 0.25);
+}
+
+
+/* Headers */
+
+h1 {
+  font-family: 'Source Sans Pro', sans-serif;
+  font-weight: 700;
+  color: rgba(0, 43, 86);
+  margin-top: 50px;
+}
+
+
+h2 {
+  font-family: 'Source Sans Pro', sans-serif;
+  color: rgba(0, 43, 86, 0.9);
+  font-size: 2.5em;
+  font-weight: 700;
+  margin-top: 40px;
+}
+
+h3 {
+  font-family: 'Source Sans Pro', sans-serif;
+  color: rgba(0, 43, 86, 0.9);
+  font-size: 2em;
+  font-weight: 400;
+  margin-top: 40px;
+}
+
+h4 {
+  font-family: 'Source Sans Pro', sans-serif;
+  color: rgba(0, 43, 86, 0.85);
+  font-size: 1.5em;
+  font-weight: 400;
+  margin-top: 30px;
+}
+
+
+
+
+/* Left menu topics list */
+
+.topicsList .topic {
+  font-family: 'Source Sans Pro', sans-serif;
+  background-color: rgba(179, 182, 185, 0.25);
+  color: rgba(0, 43, 86);
+  padding-left: 10px;
+  padding-right: 10px;
+  background-size: 10px 100px;
+  background-image: none;
+  border-bottom: 0;
+  border-top: 0;
+}
+
+
+.topicsList .topic.current {
+  font-family: 'Source Sans Pro', sans-serif;
+  background-color: rgba(223, 126, 80);
+  color: white;
+  border: 0;
+}
+
+/* Tutorial Title (top left) */
+
+.tutorialTitle {
+  font-family: 'Source Sans Pro', sans-serif;
+  color: rgba(0, 43, 86);
+  font-size: 2em;
+  font-weight: bold;
+}
+
+/* Date */
+
+.author {
+  color: rgba(0, 43, 86);
+  font-family: 'Source Sans Pro', sans-serif;
+  font-weight: 500;
+}
+
+.date {
+  color: rgba(0, 43, 86);
+  font-family: 'Source Sans Pro', sans-serif;
+  font-weight: 300;
+}
+
+/* next button */
+
+.btn-primary {
+  background-color: rgba(0, 43, 86);
+  color: white;
+  font-family: 'Source Sans Pro', sans-serif;
+}
+.btn-primary:hover {
+  background-color: rgba(0, 43, 86, 0.85);
+  color: white;
+  font-family: 'Source Sans Pro', sans-serif;
+}
+
+.btn-primary:disabled {
+  background-color: rgba(0, 43, 86, 0.85);
+  color: white;
+  font-family: 'Source Sans Pro', sans-serif;
+}
+
+/* previous button */
+
+.btn-default{
+  background-color: rgba(0, 43, 86, 0.5);
+  color: white;
+  font-family: 'Source Sans Pro', sans-serif;
+}
+
+.btn-default:hover{
+  background-color: rgba(0, 43, 86, 0.35);
+  color: white;
+  font-family: 'Source Sans Pro', sans-serif;
+}
+
+/* Run Code button */
+
+.pull-right {
+  background-color: rgba(223, 126, 80);
+}
+
+.pull-right:hover {
+  background-color: rgba(223, 126, 80, 0.85);
+} 
+
+.pull-right:active{
+  background-color: rgba(223, 126, 80, 0.85);
+}
+
+.pull-right:hover:active{
+  background-color: rgba(223, 126, 80, 0.85);
+}
+
+
+/* Reset button */
+
+.resetButton {
+  color: rgba(223, 126, 80);
+}
+
+
+/* blockquotes */
+
+blockquote {
+  font-size: 1em;
+  border-left: 0px solid #ccc;
+  width: auto;
+  display: block;
+  background:rgba(223, 126, 80, 1);
+  color:white;
+  text-align:center;
+  padding:0.7em;
+  border-radius:4px;
+}
+
+/* lists */
+
+li {
+  margin-left: 0px;
+}
+
+ul {
+  margin-left: 0px;
+}
+
+ol {
+  margin-left: 0px;
+}
+
+code {
+	font-family: 'Source Code Pro', Consolas, "Liberation Mono", Menlo, Courier, monospace;
+	line-height: 1.6;
+}
+

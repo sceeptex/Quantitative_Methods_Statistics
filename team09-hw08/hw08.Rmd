@@ -1,0 +1,379 @@
+---
+title: "Quantitative Methods in Political Science - Homework 8"
+author: "Tobias Fechner (50%), Simran Suresh Bhurat (50%)"
+date: "Due: November 23, 2021"
+output:
+  pdf_document:
+    latex_engine: xelatex
+    toc: yes
+  html_document:
+    toc: no
+---
+
+```{r setup, include=FALSE}
+# The first line sets an option for the final document that can be produced from
+# the .Rmd file. Don't worry about it.
+knitr::opts_chunk$set(echo = TRUE)
+
+# The next bit (lines 22-43) is quite powerful and useful. 
+# First you define which packages you need for your analysis and assign it to 
+# the p_needed object. 
+p_needed <-
+  c("viridis", "stargazer", "MASS", "optimx", "haven")
+
+# Now you check which packages are already installed on your computer.
+# The function installed.packages() returns a vector with all the installed 
+# packages.
+packages <- rownames(installed.packages())
+# Then you check which of the packages you need are not installed on your 
+# computer yet. Essentially you compare the vector p_needed with the vector
+# packages. The result of this comparison is assigned to p_to_install.
+p_to_install <- p_needed[!(p_needed %in% packages)]
+# If at least one element is in p_to_install you then install those missing
+# packages.
+if (length(p_to_install) > 0) {
+  install.packages(p_to_install)
+}
+# Now that all packages are installed on the computer, you can load them for
+# this project. Additionally the expression returns whether the packages were
+# successfully loaded.
+sapply(p_needed, require, character.only = TRUE)
+
+# This is an option for stargazer tables
+# It automatically adapts the output to html or latex,
+# depending on whether we want a html or pdf file
+stargazer_opt <- ifelse(knitr::is_latex_output(), "latex", "html")
+```
+
++ _Please try to answer the questions with **short** but very **precise** statements. However, do not hide behind seemingly fancy jargon._
++ _If you do not have any special reason, please do not load additional packages to solve this homework assignment. If you nevertheless do so, please indicate why you think this is necessary and add the package to the `p_needed` vector in the setup chunk._
++ _In addition to the `Rmd`, please make sure that in the repo, there is a PDF knitted from the latest version of your code. The automated check for reproducibility on Github will run only when you include the word "final" into the commit message._
++ _This time, we will ask you to start paying special attention to editing and formatting (this will be useful for your Data essay), so you start to use chunk options. You are welcome to have a look at lab code for examples of using chunk options or to consult [this page](https://yihui.org/knitr/options/)._
+
+\newpage 
+## Part 1: Maximum likelihood by hand
+
+You observe the following distribution of exam results in a class:
+
+| **Student**  |  **Result** |
+|:-------------|:------------|
+| Student 1    |  fail       |
+| Student 2    |  pass       |
+| Student 3    |  fail       |
+| Student 4    |  pass       |
+| Student 5    |  pass       |
+| Student 6    |  fail       |
+| Student 7    |  pass       |
+| Student 8    |  fail       |
+| Student 9    |  pass       |
+| Student 10   |  fail       |
+| Student 11   |  pass       |
+| Student 12   |  pass       |
+| Student 13   |  pass       |
+| Student 14   |  fail       |
+
+
+*1.1 Write down the likelihood function (using math mode in Latex).*
+
+Answer: 
+$$
+L(p|y,N) = \frac{N!}{(N-y)!y!}p^y(1-p)^{N-y}
+$$
+
+*1.2 Calculate the maximum likelihood estimate for $p_{\text{pass}}$. Solve this problem **analytically** (i.e. by hand on paper or using math mode in Latex).*  
+
+
+
+$$
+\\N= 14,\; k = 8, \; p = seq(0,1, 0.1)
+$$
+$$
+f(k = 8, N = 14, p = 0.1) = \frac{14!}{(14-8)!8!}0.1^8(1-0.1)^{14-8} = 1.5959 *10^{-05}
+$$
+
+$$
+f(k = 8, N = 14, p = 0.2) = \frac{14!}{(14-8)!8!}0.1^8(1-0.2)^{14-8} = 0.002015279
+$$
+
+$$
+f(k = 8, N = 14, p = 0.3) = \frac{14!}{(14-8)!8!}0.1^8(1-0.3)^{14-8} = 0.02318001
+$$
+
+$$
+f(k = 8, N = 14, p = 0.4) = \frac{14!}{(14-8)!8!}0.1^8(1-0.4)^{14-8} = 0.09182116
+$$
+
+$$
+f(k = 8, N = 14, p = 0.5) = \frac{14!}{(14-8)!8!}0.1^8(1-0.5)^{14-8} = 0.1832886
+$$
+
+$$
+f(k = 8, N = 14, p = 0.6) = \frac{14!}{(14-8)!8!}0.1^8(1-0.6)^{14-8} = 0.2065976
+$$
+
+$$
+f(k = 8, N = 14, p = 0.7) = \frac{14!}{(14-8)!8!}0.1^8(1-0.7)^{14-8} = 0.1262023
+$$
+
+$$
+f(k = 8, N = 14, p = 0.8) = \frac{14!}{(14-8)!8!}0.1^8(1-0.8)^{14-8} =  0.03224447
+$$
+$$
+f(k = 8, N = 14, p = 0.9) = \frac{14!}{(14-8)!8!}0.1^8(1-0.9)^{14-8} = 0.001292693
+$$
+Answer: We can see the maximum likelihood of 0.2065 when p is 0.6 or 60%.
+
+*1.3 Now calculate the MLE for $p_{\text{pass}}$  using `R` **numerically**, by maximizing the **likelihood** function.*
+
+
+```{r numerical-maximization}
+
+binom_lik <- function(y, n, p) {
+  factorial(n) / (factorial(n - y) * factorial(y)) * p ^ y * (1 - p) ^ (n - y)
+}
+
+p <- seq(0, 1, 0.01)
+lik <- binom_lik(y = 8, n = 14, p = p)
+
+p_max_lik <- p[which.max(lik)]
+max_lik <- lik[which.max(lik)]
+
+p_max_lik
+max_lik
+```
+
+
+
+*1.4 Show that maximizing the **log-likelihood function** gives you the same estimate for $p_{\text{pass}}$.* 
+
+
+
+```{r log-likelihood-maximization}
+binom_loglik <- function(y, n, p) {
+  log(factorial(n) / (factorial(n - y) * factorial(y))) + 
+    y * log(p) + (n - y) * log(1 - p)
+}
+
+res <- optimize(
+  f = binom_loglik,
+  interval = c(0, 1),
+  y = 8,
+  n = 14,
+  maximum = T
+)
+
+res
+
+```
+*The probability of 0.57 is same for log-likelihood function as well as the maximum likelihood estimate*
+
+
+
+## Part 2: Maximum likelihood for bivariate linear regression
+
+*2.1 Load the `infantmortality2.dta` data set (use a relative path). Using chunk options, hide the code and the output (if any is produced).*
+
+```{r load-data, include=FALSE}
+dat <- read_dta("raw-data/infantmortality2.dta")
+dat
+```
+
+
+*2.2 Calculate the effect of logged income (IV) on logged infant mortality (DV) using OLS and ML. Include and explain your code in the **write-up**.*
+
+```{r ols-mle-linear-model}
+
+#Using OLS Model
+
+lm1 <- lm(loginfant ~ logincome, data = dat)
+lm1
+
+#Using ML
+
+Y <- dat$loginfant
+X <- dat$logincome
+
+lm_loglik <- function(y, x, theta) {
+  N <- length(y)
+  
+  # theta contains our parameters to be estimated
+  
+  beta0 <- theta[1]
+  beta1 <- theta[2]
+  sigma2 <- exp(theta[3])
+  
+  logl <-
+    -N / 2 * log(sigma2) - 1 / (2 * sigma2) * sum((y - beta0 - beta1 * x) ^ 2)
+  return(logl)
+}
+
+stval <- c(0, 0, 0)
+
+res <-
+  optimx(
+    stval,
+    lm_loglik,
+    y = Y,
+    x = X,
+    control = list(maximize = T)
+  )
+
+res
+```
+
+*2.3 Plot the data and draw regression lines from both OLS and ML estimates (consider putting regression lines on the same scatterplot). Add a meaningful name to your figure(s) using chunk option `fig.cap` and make the figure centered using `fig.align`. You can also adjust the dimensions of the figure with `fig.dim` to your liking. Hide the code for plots but show output of that chunk (i.e. only the plots). You don't need to simulate or plot the uncertainty around the regression lines.*
+
+```{r ols-mle-linear-model-plot, echo=FALSE, results='hold', fig.cap='OLS and ML estimates for logincome on loginfant', fig.align='center', fig.dim=c(6,4) }
+
+#| my-chunk, echo = FALSE, fig.width = 10,
+#| fig.cap = "Scatter plot of logged income and logged infant mortality" 
+
+
+col_vec = c(adjustcolor(viridis(3)[1], alpha = 0.3), adjustcolor(viridis(3)[1], alpha = 0.7), "blue")
+
+sec_income <- seq(min(dat$logincome), max(dat$logincome), (max(dat$logincome)-min(dat$logincome))/999)
+
+scenario <- cbind(1, sec_income)
+
+#calculating QOI
+nsim=1000
+beta_hat=coef(lm1)
+V_hat=vcov(lm1)
+
+S <- MASS::mvrnorm(nsim, beta_hat, V_hat)
+EV <- S %*% t(scenario)
+
+sigma <- sqrt(sum(residuals(lm1)^2) / (nrow(dat) - length(beta_hat)))
+
+Y_hat <- EV[,1] + rnorm(nsim, 0, sigma)
+
+
+quants_mean_fun <-  function(x) {
+  c(quants = quantile(x, probs = c(0.025, 0.975)),
+    mean = mean(x))
+}
+quants <- quants_mean_fun(Y_hat)
+
+EV_range <- S %*% t(scenario)
+
+Y_hat_range <- EV_range + rnorm(nsim, 0, sigma)
+Y_quants_range <- apply(Y_hat_range, 2, quants_mean_fun)
+
+
+#Plot
+plot(
+  sec_income,
+  Y_quants_range[2,],
+  pch = 19,
+  cex = 0.3,
+  bty = "n",
+  las = 1,
+  xlim = c(3,10),
+  ylim = c(1,7),
+  ylab = "loginfant mortality Rate",
+  main = "Predicted loginfant Mortality Rate ",
+  xlab = "Range of logincome",
+  type = "n"
+)
+#Actual observations.
+points(dat$logincome,
+       dat$loginfant,
+       pch = 19,
+       col = adjustcolor(viridis(3)[1], alpha = 0.5))
+
+# OLS line.
+abline(lm1) 
+
+```
+
+
+## Part 3: Peer review of homework 7
+
+This time, we will ask you to review homework 7 on simulations. While you already have our feedback for *your* submission, it will be useful to address this topic again by looking into an example of someone else's work (and hopefully pick one or two good things from each other). This time, we will try out a slightly different format than before. 
+
+- You can find an anonymous `Rmd` file `HW07_review.Rmd`. You will need to add your comments right into this file, after each part of the assignment (so three comment sections in total). Please separate your comments from the text in the assignment with a horizontal line `***` (like after this part). 
+
+- This time, you can write the comments as a team and not as separate reviewers, but make sure that everyone contributes equally (we may track this with commit history of your repos). 
+
+- Whenever possible, try to mention something positive that caught your attention, e.g., a very good presentation of results, clean code, solutions that you liked, etc, and what you like about it. 
+
+- For Part 3, comment on both the correctness of the code and on the presentation of results. E.g., how are the presented plots and tables formatted? are they informative and intuitive to read? how do the authors communicate the results? are they using clear and precise language?
+
+***
+
+**1.1**
+
+- The definition is right, but you could also add that it only contains estimation uncertainty and not fundamental uncertainty.
+
+**1.2**
+
+- The explaination is right. Please explain when it is a predicted or expected value. 
+- Please explain how the simulation approach it is done. 
+
+**2.1**
+
+1. It does not need to be a likelihood function to calculate the regression coefficeints. It can also be OLS. We don't need the point estimate right now. 
+2. This is right. In addition you could add that is beeing created with the coefficients and the variance-covariance matrix.
+3. That is right. 
+4. These are the average expected value of a variable 𝑌 which are conditional on a particular set of values 𝑋.
+5. Yes that is right
+	
+
+**2.2**
+
+- You crated the function the right way. In your version you can only use one ore more scenarios. That is nice.
+- You also correctly did the check for the right amount of number of variables in the Input scenario.
+
+**2.3**
+
+- These scenarios were defined the right way and you combined them. That is a great way to simplify the code. 
+- We really like your output graphs and the result is right. 
+
+**3.1**
+
+- You crated 4 dummy variables but you only need k-1 variables (The first region will be indicated by all others beeing 0(it is your base class))
+- You did not use the forth dummy variable in your linear model. Well done!
+	
+
+**3.2**
+
+- You created the mean and median values the right way and created the right scenario.
+- The Results and interpretation are correct
+	
+**3.3**
+
+- You created the right scenarios for your simulation and run it correctly. The plot shows a nice distribution around the point estimate. The result is s conclusive.
+
+**3.4**
+
+- This is the right model without the regions and with the logged features.
+
+**3.5**
+
+- Please use the the min and max values for your scenario sequence. You used "seq(4.5, 8.5, 0.1)". Pease use "seq( min(x), max(x), length.out = 1000)"
+- Please add the scenario of a non oil country in your graph (This would be a new different line in the graph)
+- Please add to the label the following: "Logged Infant Mortality Rate per 1000 life births". You're labels are not meaningfull.
+- The interpretation is right.
+
+
+**3.6**
+
+- You have two different scenarios (with and without oil) Eah of these scenarios have different expected value lines and each two lines for the confidence interval. You have three lines. That makes no sense.  
+- You have a nice start to include uncertainty, but did not included it. 
+
+
+
+
+## Part 4: Optional question: Prove that MLE($\sigma^2$) is biased 
+
+The unbiased estimator of $\sigma^2$ in the bivariate linear model is $\hat{\sigma}^2 = \frac{1}{n - k - 1} \sum_{i=1}^N (y_i - \beta_0 - \beta_1x_i)^2$, where $k$ is the number of independent variables. Derive the Maximum Likelihood estimator of $\sigma^2$ and show that it is biased.
+
+\newpage
+
+## R code
+
+<!-- The chunk below will print out the code from all the chunks in the document, even if you chose to hide chunks in the main text with `echo=FALSE` chunk option or `include=FALSE` option. You do not need to put any code in this chunk manually: it will gather code from other chunks automatically. -->
+
+```{r ref.label=knitr::all_labels(), echo=TRUE, eval=FALSE}
+```
+

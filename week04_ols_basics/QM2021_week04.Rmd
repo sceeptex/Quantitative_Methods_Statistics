@@ -1,0 +1,925 @@
+---
+title: "QM 2021 Week 4: OLS Basics"
+author: 
+  - "Oliver Rittmann"
+  - "Viktoriia Semenova"
+  - "David Grundmanns"
+date: "September 30 | October 4 | October 5, 2021"
+output:
+  html_document:
+    toc: yes
+    number_sections: yes
+    toc_float: yes
+    smooth_scroll: yes
+    highlight: tango
+    css: css/lab.css
+  pdf_document:
+    toc: yes
+editor_options: 
+  chunk_output_type: inline
+---
+
+---
+
+
+# Today we will learn {-}
+ 1.   Writing Functions
+ 2.   Bivariate OLS "by hand"
+ 3.   Residuals, $R^2$ etc.
+ 4.   R Regression Commands
+ 5.   Non-Linearities in Linear Regression
+
+
+In other words, our goals are to:
+
++ Manually estimate an OLS-Model
++ Calculate predicted values, residuals, $R^2$
++ Visualize results with some nice plots 
++ Learn how to let R do the work for you
+
+---
+
+```{r setup}
+# The first line sets an option for the final document that can be produced from
+# the .Rmd file. Don't worry about it.
+knitr::opts_chunk$set(
+  echo = TRUE, # show results
+  collapse = TRUE # not interrupt chunks
+)
+
+# The next bit (lines 50-69) is quite powerful and useful.
+# First you define which packages you need for your analysis and assign it to
+# the p_needed object.
+p_needed <- c(
+  "foreign", # import files
+  "viridis", # color
+  "ggplot2", # plotting
+  "here", # directory
+  "stargazer", # for regression tables
+  "dplyr" # for glimpse command
+) 
+
+# Now you check which packages are already installed on your computer.
+# The function installed.packages() returns a vector with all the installed
+# packages.
+packages <- rownames(installed.packages())
+# Then you check which of the packages you need are not installed on your
+# computer yet. Essentially you compare the vector p_needed with the vector
+# packages. The result of this comparison is assigned to p_to_install.
+p_to_install <- p_needed[!(p_needed %in% packages)]
+# If at least one element is in p_to_install you then install those missing
+# packages.
+if (length(p_to_install) > 0) {
+  install.packages(p_to_install)
+}
+# Now that all packages are installed on the computer, you can load them for
+# this project. Additionally the expression returns whether the packages were
+# successfully loaded.
+sapply(p_needed, require, character.only = TRUE)
+
+# This is an option for stargazer tables
+# It automatically adapts the output to html or latex,
+# depending on whether we want a html or pdf file
+stargazer_opt <- ifelse(knitr::is_latex_output(), "latex", "html")
+
+# Don't worry about this part: it ensures that if the file is knitted to html,
+# significance notes are depicted correctly
+if (stargazer_opt == "html"){
+  fargs <- formals(stargazer)
+  fargs$notes.append = FALSE
+  fargs$notes = c("<sup>&sstarf;</sup>p<0.1; <sup>&sstarf;&sstarf;</sup>p<0.05; <sup>&sstarf;&sstarf;&sstarf;</sup>p<0.01")
+  formals(stargazer) <- fargs
+}
+
+# set the seed for replicability
+set.seed(2021)
+```
+
+# Writing Functions
+
+Functions in R are very useful! They take objects as input, do something with this input, and return an output. The output is just the result of what happens to the input within the function. In other words, the output is a function of the input. The great thing is that we can freely define what this function should do. 
+
+Just as with loops, try to get into the habit of using them. You will save a lot of time and make your R-code more efficient and structured.
+
+Functions always have the same structure:
+
++ stored as objects, with a name, preferably a verb (that describes what the function does).
++ `()` after `function()` contains placeholders for input.
++ `{}` includes the "function" itself, using the defined placeholdes instead of real input.
+ 
+ ```r
+do_this <- function([inputs separated by commas]){
+  # what to do with those inputs
+}
+```
+
+I usually best understand those concepts by looking at an example. How about squaring numbers?
+
+## Example I: Squaring numbers
+
+```{r first function}
+powertwo <- function(x){
+  x^2
+}
+
+powertwo(x = 5)
+
+# And now we can use this function with any input.
+powertwo(x = 2.25)
+
+# Or even for a sequence of numbers.
+powertwo(x = seq(1, 10, 0.5))
+```
+
+## Example II: Growth and Presidents' vote shares
+
+Let's write a more useful function! In the lecture our estimated model for the relationship between economic growth and vote share was: 
+
+**Vote Share = 49.699 + 1.127 * Growth**
+
+We can write a function that calculates predicted values for us!
+
+Let's start simple. How do you calculate the predicted value for Growth = 1?
+
+```{r prediction by hand}
+49.699 + 1.127 * 1
+```
+
+
+Now you can generalize this equation for any value of Growth and put it in a function.
+
+```{r voteshare prediction function}
+voteshare_pred <- function(growth) {
+  49.699 + 1.127 * growth
+}
+
+voteshare_pred(growth = 1)
+```
+
+
+Let's make this function even more general. Write a general function to predict values for any bivariate OLS. 
+
+```{r bivariate prediction function}
+predict_bi <- function(x, intercept, slope) {
+  
+  intercept + slope * x
+  
+}
+
+predict_bi(x = 1, 
+           intercept = 49.699, 
+           slope = 1.127)
+
+```
+
+
+Let it work for us. Predict the values of vote share for a sequence of possible values of growth ranging from -1 to 3 by 0.1 increments. Please use the general function.
+
+```{r prediction}
+growth <- seq(from = -1, to = 3, by = 0.1)
+
+predicted_vote <- predict_bi(x = growth, 
+                             intercept = 49.699, 
+                             slope = 1.127)
+
+
+plot(x = growth, 
+     y = predicted_vote,
+     xlab = "Economic Growth",
+     ylab = "Predicted Voteshare",
+     main = "Predicted Voteshare from a bivariate OLS",
+     pch = 19,
+     col = viridis(1),
+     bty = "n",
+     las = 1)
+```
+
+
+# Voteshare of the Green Party and Young Voters
+
+## Exploring Data Set  {.tabset}
+
+Let's examine some district level data from the 2017 federal elections in Germany.
+Load the data into R and have a look at some summary statistics.
+
+```{r load and inspect election data, collapse=FALSE}
+load(here("raw-data/election2017.Rdata"))
+
+# Explore the data set
+summary(election2017)
+head(election2017)
+glimpse(election2017)
+```
+
+The data set contains, for each voting district, the following information:
+
+  + Vote shares of CDU, SPD, The Left, The Greens, AfD and FDP.
+  + Percentage of the population between 18 and 34 years old.
+  + Population density (inhabitants per $km^2$).
+  
+### Base R {.unnumbered}
+
+```{r exploratory visualization base}
+# Have a look at the green party's district level vote share
+hist(election2017$greenvote, 
+     main = "Histogram of the Green's District-level Vote Share in 2017",
+     xlab = "Vote Share",
+     breaks = 20,
+     col = viridis(1),
+     border = F,
+     las = 1)
+
+# Have a look at the share of "young voters" in districts
+hist(election2017$age18to34, 
+     main = "Histogram of the Share of Young Voters in Districts",
+     xlab = "Share of 18- to 34-year-old voters in district",
+     breaks = seq(14, 33, by = 1),
+     col = viridis(1),
+     border = F,
+     las = 1)
+```
+
+Are younger districts "greener"? Let's have a first look at the scatterplot.
+
+
+```{r exploratory scatterplot base}
+plot(x = election2017$age18to34, 
+     y = election2017$greenvote, 
+     main = "Scatterplot of Green Vote Share and\nPercentage of Young People in Districts",
+     xlab = "Proportion of young people (18 to 34) in %",
+     ylab = "Vote share for the Green Party in %",
+     bty = "n", 
+     las = 1,                      
+     pch = 19,                      
+     col = viridis(1, alpha = 0.5)) # make color 50% transparent
+
+```
+
+### ggplot2 {.unnumbered}
+
+```{r  exploratory visualization ggplot}
+# Green party's district level vote share
+ggplot(
+  data = election2017,
+  aes(election2017$greenvote)
+) +
+  geom_histogram(
+    boundary = 10,
+    binwidth = 1,
+    color = "white",
+    fill = viridis(1)
+  ) +
+  labs(
+    title = "Histogram of the Green's District-level Vote Share in 2017",
+    x = "Vote Share",
+    y = "Frequency"
+  ) +
+  theme_minimal() +
+  scale_x_continuous(breaks = c(seq(5, 20, by = 5)))
+
+
+# share of "young voters" in districts
+ggplot(
+  data = election2017,
+  aes(x = greenvote)
+) +
+  geom_histogram(
+    boundary = 20, 
+    binwidth = 1,
+    color = "white",
+    fill = viridis(1)
+  ) +
+  labs(
+    title = "Histogram of the share of 18- to 34-year-old Voters in Districts",
+    x = "Share of 18- to 34-year-old voters in district",
+    y = "Frequency"
+  ) +
+  theme_minimal() +
+  scale_x_continuous(breaks = c(seq(5, 20, by = 5)))
+```
+
+Are younger districts "greener"? Let's have a first look at the scatterplot.
+
+```{r exploratory scatterplot ggplot}
+ggplot(data = election2017,  # data used for plotting
+       mapping = aes(x = age18to34, 
+                     y = greenvote)) +
+  geom_point(color = viridis(1, alpha = 0.5), # add points
+             size = 2) + 
+  theme_minimal() + # change the appearance
+  labs(x = "Proportion of young people (18 to 34) in %",
+       y = "Vote share for the Green Party in %",
+       title = "Scatterplot of Green Vote Share and\nPercentage of Young People in Districts")  
+
+```
+
+
+## Bivariate OLS "by hand" {.tabset}
+
+
+We will now to fit our first regression and we will do this by hand. As a reminder, this is what we are working with:
+
+$$y = \underbrace{\beta_0}_{intercept} + \underbrace{\beta_1}_{slope} x + \underbrace{\epsilon}_{error}$$
+
+In our example, we are trying to estimate this, with $i$ depicting a district (i.e., an observation):
+
+$$\text{Green Vote Share}_i = \underbrace{\hat{\beta_0}}_{intercept} + \underbrace{\hat{\beta_1}}_{slope} \text{Share of Young Voters}_i$$
+
+
+We start by estimating the slope, $\hat{\beta_1}$.
+
+We know that the slope is calculated by $\hat{\beta_1} = \dfrac{Cov(x,y)}{Var(x)} = \dfrac{\sum(x_i - \bar{x})(y_i-\bar{y})}{\sum(x_i - \bar{x})^2}$. 
+
+We then need to translate this into R:
+
+- `cov = sum((x - mean(x)) * (y - mean(y)))`
+- `var = sum((x - mean(x))^2)`
+ 
+So make this work for our example:
+ 
+```{r ols by hand I}
+# Calculate Variance of x
+var_x_hand <- sum((election2017$age18to34 - mean(election2017$age18to34))^2)
+
+# Calculate Covariance of x and y
+cov_hand <- sum(
+  (election2017$age18to34 - mean(election2017$age18to34)) *
+    (election2017$greenvote - mean(election2017$greenvote))
+)
+
+slope <- cov_hand / var_x_hand
+
+slope
+```
+
+
+Now we can calculate the intercept:
+$$\hat{\beta_0} = \bar y - \hat{\beta_1} \times \bar x.$$ 
+
+With R commands, the intercept is calculated by `mean(y) - slope*mean(x)`
+
+```{r ols by hand II}
+intercept <- mean(election2017$greenvote) - slope * mean(election2017$age18to34)
+
+intercept
+```
+
+Why not make a generalized function out of it?
+
+```{r ols by hand function}
+ols_bi <- function(y, x) {
+  cov <- sum((x - mean(x)) * (y - mean(y)))
+  var <- sum((x - mean(x))^2)
+  b1 <- cov / var
+  b0 <- mean(y) - b1 * mean(x)
+  cat("Congrats, you just wrote your first estimator!\n \n intercept \t slope \n", b0, "\t", b1)
+  return(c(b0, b1))
+}
+
+coef_hand <- ols_bi(y = election2017$greenvote, x = election2017$age18to34)
+```
+
+
+Ok, now that we fitted our first regression, let's add the regression line to our scatterplot.
+
+### Base R {-}
+
+ 
+```{r plot regression line base}
+# we need two colors (one for the dots, one for the line)
+twocols <- viridis(2, 
+                   alpha = c(0.5, 1)) # only first color transparent
+
+plot(x = election2017$age18to34,
+     y = election2017$greenvote,
+     main = "Scatterplot of Green Vote Share and\nPercentage of Young People in Districts",
+     xlab = "Proportion of young people (18 to 34) in %",
+     ylab = "Vote share for the Green Party (%)",
+     bty = "n",
+     las = 1,
+     pch = 19, 
+     col = twocols[1],
+     ylim = c(0, 22))
+
+# add the line
+abline(a = coef_hand[1], # a is the intercept of the line
+       b = coef_hand[2], # b is the slope of the line
+       col = twocols[2],
+       lwd = 2)
+```
+
+### ggplot2 {-}
+ 
+```{r plot regression line ggplot, fig.show="hold", out.width="50%"}
+
+# we need two colors (one for the dots, one for the line)
+twocols <- viridis(2, 
+                   alpha = c(0.5, 1)) # only first color transparent
+
+ggplot(data = election2017,  # data used for plotting
+       mapping = aes(x = age18to34, y = greenvote)) +
+  geom_point(color = twocols[1], # add points
+             size = 2) + 
+  theme_minimal() + # change the appearance
+  theme(panel.grid.major = element_blank(),   # remove major grid lines
+        panel.grid.minor = element_blank()) + # remove minor grid lines
+  labs(x = "Proportion of young people (18 to 34) in %",
+       y = "Vote share for the Green Party (%)",
+       title = "Scatterplot of Green Vote Share and\nPercentage of Young People in Districts",
+       subtitle = "Using manual calculations")  +
+  geom_abline(intercept = coef_hand[1], # add the line
+              slope = coef_hand[2],
+              color = twocols[2],
+              size = 1)
+
+# but with ggplot, there is also a shortcut... ggplot can estimate the line for 
+# you and add it into the plot. We will not be using this a lot, but for the 
+# sake of completeness, here is how to do this: 
+ggplot(data = election2017,  # data used for plotting
+       mapping = aes(x = age18to34, y = greenvote)) +
+  geom_point(color = twocols[1], # add points
+             size = 2) + 
+  theme_minimal() + # change the appearance#
+  theme(panel.grid.major = element_blank(),   # remove major grid lines
+        panel.grid.minor = element_blank()) + # remove minor grid lines
+  labs(x = "Proportion of young people (18 to 34) in %",
+       y = "Vote share for the Green Party (%)",
+       title = "Scatterplot of Green Vote Share and\nPercentage of Young People in Districts",
+       subtitle = "Using built-in function")  +
+   geom_smooth(method = "lm",  # add line with ggplot command
+               se = FALSE, # only plot the line 
+               color = twocols[2])
+  
+```
+
+
+# Residuals, $R^2$, etc. {.tabset}
+
+Deriving and understanding the intercept and slope of a regression line is great and important. However, we also want to learn how well the regression line fits our data. This is why we have to talk about Residuals, Total Sum of Squares (TSS), Explained Sum of Squares (ESS), and $R^2$:
+
+ + Residuals: $\hat{\epsilon_i} = y_i - \hat{y_i} = y_i - (\hat{\beta_0} + \hat{\beta_1}x_i)$, so `y - y_hat`
+ + TSS (aka "Variation in DV"): $TSS = \sum(y_i - \bar y)^2$, so `sum((y - mean(y))^2)`
+ + ESS (aka "The variation in DV we can explain"): $ESS = \sum(\hat y_i - \bar y)^2$, so `sum((y_hat - mean(y)) ^ 2)`
+ + RSS (aka "Unexplained by model variation in DV"): $RSS = \sum\hat{\epsilon_i}^2 = \sum(y_i - \hat{y_i})^2$, so `sum((y - y_hat)^2)`
+ + $R^2$ = Explained Sum of Squares (EES) / Total Sum of Squares(TSS)
+ 
+Just like the slope and intercept, we can calculate all those things by hand:
+
+```{r R squared by hand}
+TSS_hand <- sum((election2017$greenvote - mean(election2017$greenvote))^2)
+
+# How do we get y_hat? Remember our own predict function?
+greenvote_hat <- predict_bi(
+  x = election2017$age18to34,
+  intercept = coef_hand[1],
+  slope = coef_hand[2]
+)
+
+ESS_hand <- sum((greenvote_hat - mean(election2017$greenvote))^2)
+RSS_hand <- TSS_hand - ESS_hand
+
+r_squared <- ESS_hand / TSS_hand
+
+r_squared
+```
+
+Now we also want to calculate the residuals:
+
+```{r residuals}
+election2017$residuals_hand <- election2017$greenvote - greenvote_hat
+```
+
+
+## Base R {-}
+
+And make a residual plot.
+
+```{r residual plot base}
+plot(x = election2017$age18to34, 
+     y = election2017$residuals_hand,
+     bty = "n",
+     las = 1,
+     main = "Residual Plot for greenvote",
+     ylab = "Residuals",
+     xlab = "Proportion of young people (18 to 34) in %",
+     pch = 19,
+     col = twocols[1])
+abline(h = 0,
+       col = twocols[2],
+       lwd = 2)
+grid() # add grid
+
+```
+
+## ggplot2 {-}
+
+And make a residual plot.
+
+```{r residual plot ggplot}
+
+ggplot(data = election2017,  # data used for plotting
+       mapping = aes(x = age18to34, y = residuals_hand)) +
+  geom_point(color = twocols[1], # add points
+             size = 2) + 
+  theme_minimal() + # change the appearance
+  labs(x = "Residual Plot for greenvote",
+       y = "Residuals",
+       title = "Residual Plot for greenvote")  +
+  geom_hline(yintercept = 0, # add the line
+             color = twocols[2],
+             size = 1)
+```
+
+## Animated Plot {-}
+
+And here you can see the parts of the variance visually on the scatterplot with our example:
+
+<!-- If you try to knit to pdf, comment out the line with gif -->
+
+![](images/variance.gif)
+
+# R Regression Commands {.tabset}
+
+It comes as no surprise that all of these functions are already in R...
+
+```{r lm command}
+lm_res <- lm(greenvote ~ age18to34, 
+             data = election2017)  
+
+# lm() stands for linear model.
+
+lm_res
+
+summary(lm_res)
+```
+
+
+There is a very neat package to generate ready-to-publish regression tables. It is called `stargazer` and it generates Latex (pronounced *lah-tekh*) or html output. This is how it works:
+
+```{r stargazer, message = F, results='asis'}
+library(stargazer) # we have already installed it in setup chunk
+
+stargazer(lm_res, 
+          type = stargazer_opt, 
+          covariate.labels = c("Share of young people"),
+          dep.var.labels = c("Green Vote Share"))
+```
+Now you can make ready-to-publish regression tables. (To get this code chunk working in your own projects, you need to generate the `stargazer_opt` object in the setup chunk.)
+And we are only in Week 4!!
+
+You can get the coefficients with the `coef()` command for the output of an `lm()` object, which we called `lm_res`. Let's compare them to our results from above.
+
+```{r comparison}
+cbind(coef_lm = coef(lm_res), 
+      coef_hand)
+
+coef(lm_res) - coef_hand
+```
+
+Fitted (predicted) values are also already in R. Just use the `fitted()` command.
+
+We can check whether the in-built function returns the same values as the ones we calculated "by hand":
+
+```{r fitted comparison, results = 'hide'}
+head(fitted(lm_res) - greenvote_hat)
+
+# Of course we can also get the residuals.
+head(residuals(lm_res) - election2017$residuals_hand)
+```
+
+We did pretty good calculating it by hand, didn't we?
+
+We have re-estimated the results with a built in command already, and now let's present our results in a plot. Additionally, we make a residual plot to investigate whether there are any problems with the model.
+
+
+## Base R {-}
+
+Plot values and regression line in a nice plot.
+
+```{r plot with regression line base}
+plot(x = election2017$age18to34, 
+     y = election2017$greenvote,
+     bty = "n",
+     las = 1,
+     pch = 19, 
+     col = twocols[1], 
+     cex = 1,
+     ylim = c(0, 25),
+     ylab = "Vote share for the Green Party (%)",
+     xlab = "Percentage of population between 18 and 34 (%)",
+     main = "Younger Districts - Greener Votes?")
+abline(lm_res, 
+       col = twocols[2],
+       lwd = 2)
+
+```
+
+Now we want to have a look at the residual plot. And label the outliers just like in the plot in the lecture.
+
+```{r residuals plot base}
+plot(x = election2017$age18to34, 
+     y = residuals(lm_res),
+     bty = "n",
+     las = 1,
+     pch = 19,
+     col = twocols[1],
+     ylim = c(-9, 9),
+     xlab = "% of the population between 18 and 34", 
+     ylab = "Residuals",
+     main = "Residual Plot")
+abline(h = 0,
+       col = twocols[2],
+       lwd = 2)
+grid()
+
+# Label the largest positive outlier
+text(x = election2017$age18to34[residuals(lm_res) == max(residuals(lm_res))], 
+     y = max(residuals(lm_res)), 
+     names(which(residuals(lm_res) == max(residuals(lm_res)))),
+     cex = 0.6, 
+     pos = 1)
+
+# Label the largest negative outlier
+text(x = election2017$age18to34[residuals(lm_res) == min(residuals(lm_res))], 
+     y = min(residuals(lm_res)), 
+     names(which(residuals(lm_res) == min(residuals(lm_res)))),
+     cex = 0.6, 
+     pos = 1)
+```
+
+## ggplot2 {-}
+
+Plot values and regression line in a nice plot.
+
+```{r plot with regression line ggplot}
+ggplot(data = election2017,  # data used for plotting
+       mapping = aes(x = age18to34, y = greenvote)) +
+  geom_point(color = twocols[1], # add points
+             size = 2) + 
+  theme_minimal() + # change the appearance
+  theme(panel.grid.major = element_blank(),panel.grid.minor = element_blank()) +
+  labs(x = "Proportion of young people (18 to 34) in %",
+       y = "Vote share for the Green Party (%)",
+       title = "Scatterplot of green votes and share of young people")  +
+  geom_abline(intercept = coef(lm_res)[1], # add the line
+              slope = coef(lm_res)[2],
+              color = twocols[2],
+              size = 1)
+
+```
+
+Now we want to have a look at the residual plot. And label the outliers just like in the plot in the lecture.
+
+```{r residuals plot ggplot}
+ggplot(mapping = aes(x = election2017$age18to34, 
+                     y = residuals(lm_res))) +
+  geom_point(color = twocols[1], # add points
+             size = 2) + 
+  theme_minimal() + # change the appearance
+  labs(x = "Residuals",
+       y = "Vote share for the Green Party (%)",
+       title = "Residual Plot for greenvote")  +
+  geom_hline(yintercept = 0, # add the line
+             color = twocols[2],
+             size = 1) +
+  geom_text(aes(x = election2017$age18to34[residuals(lm_res) == max(residuals(lm_res))], 
+                y = max(residuals(lm_res)),
+                label = names(which(residuals(lm_res) == max(residuals(lm_res)))),
+                vjust = 2),
+            size = 3) +
+  geom_text(aes(x = election2017$age18to34[residuals(lm_res) == min(residuals(lm_res))], 
+                y = min(residuals(lm_res)),
+                label = names(which(residuals(lm_res) == min(residuals(lm_res)))),
+                vjust = 2),
+            size = 3)
+```
+
+
+
+# Exercise Section: Non-Linearities in Linear Regression
+
+In today's exercise section, you will explore how linear models can be used to model non-linear relationships.
+
+Let's start with a hypothesis: Somebody argues that the Greens got more votes in urban districts than in districts on the countryside. We measure whether a district is urban or countryside with its population density (`popdensity`).
+
+## Exercise 1: Visual Exploratory Data Analysis {-}
+
+Let's have a look at the data first. The hypothesis suggests a relationship between two variables. 
+
+  - The **independent variable** is population density (`popdensity`).
+  - The **dependent variable** is Green vote share (`greenvote`).
+  
+### 1.1 Plot univariate distribution {-}
+
+  - Plot the univariate distribution of `popdensity`. Either use a histogram or a density plot (or both).
+
+```{r Exercise 1}
+
+hist(election2017$popdensity, 
+     main = "Histogram of the population density",
+     xlab = "Vote Share",
+     breaks = 20,
+     col = viridis(1),
+     border = F,
+     las = 1)
+
+```
+
+### 1.2 Now let's look at the bivariate distribution of `popdensity` and `greenvote`. {-}
+
+  - Create a scatterplot of both variables. 
+  - Make an educated decision on which variable goes on the x-axis and which on the y-axis.
+  - Discuss what the relationship between both variables looks like. Is it linear?
+
+```{r Exercise 2}
+
+plot(x = election2017$popdensity, 
+     y = election2017$greenvote, 
+     main = "Scatterplot ",
+     xlab = "",
+     ylab = "",
+     bty = "n", 
+     las = 1,                      
+     pch = 19,                      
+     col = viridis(1, alpha = 0.5)) # make color 50% transparent
+
+```
+
+### 1.3 Use `log(popdensity)` instead of `popdensity`. {-}
+
+To model nonlinear relationships, it is sometimes (but not always!) useful to log-transform one of the variables. Let's try this out in this case. 
+
+  - Calculate the log-values of population density and store it as a new variable `logpopdensity`. **Hint:** We can easily calculate log values with the function `log()`.
+  - Repeat 1.2, but this time use `logpopdensity` instead of `popdensity`.
+  - Again discuss what the relationship between both variables looks like.
+
+```{r Exercise 3}
+plot(x = log(election2017$popdensity), 
+     y = election2017$greenvote, 
+     main = "Scatterplot ",
+     xlab = "",
+     ylab = "",
+     bty = "n", 
+     las = 1,                      
+     pch = 19,                      
+     col = viridis(1, alpha = 0.5)) # make color 50% transparent
+
+```
+
+
+### 1.4 Linear model and linear regression with log-transformed variables {-}
+
+Use the `lm()` command to estimate two OLS Models:
+
+  - A linear model where you regress `greenvote` on `popdensity`. Store the regression output in an object called `linear_model`. 
+  - A second model where you regress `greenvote` on `logpopdensity`. Store the regression output in an object called `loglinear_model`. 
+
+```{r Exercise 4}
+
+plot(x = log(election2017$popdensity), 
+     y = election2017$greenvote, 
+     main = "Scatterplot ",
+     xlab = "",
+     ylab = "",
+     bty = "n", 
+     las = 1,                      
+     pch = 19,                      
+     col = viridis(1, alpha = 0.5)) # make color 50% transparent
+
+loglinear_model <- lm(greenvote ~ log(popdensity), 
+             data = election2017)
+
+linear_model <- lm(greenvote ~ popdensity, 
+             data = election2017)
+#linear_model <- lm(greenvote ~ log(popdensity)+greenvoter,
+#             data = election2017)
+
+abline(linear_model, 
+       col = twocols[2],
+       lwd = 2)
+
+summary(linear_model)
+summary(loglinear_model)
+```
+
+
+### 1.5 Inspect the results {-}
+
+If you did everything correctly, you can run the following code to inspect your results. If you have time left, discuss the plots in your group. 
+
+  - How does the first model compare to the model with the transformed variable?
+  - Where does the nonlinearity in the second model come from?
+
+First, the linear model (without log-transformation):
+
+<!-- To get the chunks to run, remove the eval=FALSE part from the chunk header -->
+
+```{r  Results 1, eval=FALSE}
+plot(
+  x = election2017$popdensity,
+  y = election2017$greenvote,
+  bty = "n",
+  las = 1,
+  pch = 19,
+  col = twocols[1],
+  ylim = c(0, 25),
+  ylab = "Green Voteshare in %", xlab = "Population Density per km^2",
+  main = "A linear model"
+)
+abline(linear_model,
+  col = twocols[2],
+  lwd = 2
+)
+
+# We will see the problem when looking at the residuals.
+plot(
+  x = election2017$popdensity,
+  y = residuals(linear_model),
+  bty = "n",
+  las = 1,
+  pch = 19,
+  col = twocols[1],
+  ylab = "Residuals", xlab = "Population Density per km^2",
+  main = "Residuals of the simple linear model"
+)
+abline(
+  h = 0,
+  col = twocols[2],
+  lwd = 2
+)
+```
+
+
+Second, the model with `logpopdensity`:
+
+<!-- To get the chunks to run, remove the eval=FALSE part from the chunk header -->
+
+```{r Results 2, eval=FALSE}
+plot(
+  x = log(election2017$popdensity),
+  y = election2017$greenvote,
+  bty = "n",
+  las = 1,
+  pch = 19,
+  col = viridis(1, alpha = 0.5),
+  ylab = "Green Voteshare in %",
+  xlab = "log of Population Density per km^2",
+  main = "A model with a transformed variable (log scale)"
+)
+abline(loglinear_model,
+  col = twocols[2],
+  lwd = 2
+)
+
+
+# Residual Plot
+plot(
+  x = log(election2017$popdensity),
+  y = residuals(loglinear_model),
+  bty = "n",
+  las = 1,
+  pch = 19,
+  col = twocols[1],
+  ylab = "Residuals", xlab = "Log of Population Density per km^2",
+  main = "Residuals of the model with a transformed variable"
+)
+abline(
+  h = 0,
+  col = twocols[2],
+  lwd = 2
+)
+
+```
+
+We can (and should!) transform population density back to human-readable scale. Now it should become apparent why log-transformation enables us to model non-linear relationships while using a linear model.
+
+<!-- To get the chunks to run, remove the eval=FALSE part from the chunk header -->
+
+```{r Results 3, eval=FALSE}
+plot(
+  x = election2017$popdensity,
+  y = election2017$greenvote,
+  bty = "n",
+  las = 1,
+  pch = 19,
+  col = twocols[1],
+  ylim = c(0, 25),
+  ylab = "Green Voteshare in %", xlab = "Population Density per km^2",
+  main = "A non-linear linear model (human readable scale)"
+)
+curve(loglinear_model$coefficient[1] + loglinear_model$coefficient[2] * log(x),
+  add = T,
+  col = twocols[2],
+  from = 5,
+  to = 13000,
+  n = 100000,
+  lwd = 2
+)
+```
+
+
+# Concluding remarks {-}
+
+ + In your homework you will:
+    + Calculate a simple bivariate regression by hand and in R.
+    + Have a look at the relationship between corruption and wealth.

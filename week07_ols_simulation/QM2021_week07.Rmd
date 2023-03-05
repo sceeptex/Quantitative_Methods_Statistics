@@ -1,0 +1,1268 @@
+---
+title: "QM 2021 Week 7: OLS: Interactions and Simulations"
+author: 
+  - "Oliver Rittmann"
+  - "Viktoriia Semenova"
+  - "David Grundmanns"
+date: "October 21 | 25 | 26, 2021"
+output:
+  html_document:
+    toc: yes
+    number_sections: yes
+    toc_float: yes
+    highlight: tango
+    css: css/lab.css
+    self_contained: yes
+  pdf_document:
+    toc: yes
+bibliography: citations.bib # this adds a bibliography file from the repo
+biblio-style: apsr # this selects the style 
+editor_options: 
+  chunk_output_type: console
+---
+
+------------------------------------------------------------------------
+  
+# Today we will learn {.unnumbered}
+
+1.   Interaction Effects with two Continuous Variables
+2.   Prediction So Far
+3.   Meet the apply function
+4.   Simulation
+  - Expected Values
+  - First Differences
+5.   Predicted Values
+
+In other words, the goals are to:
+
+  - use simulation to make statements about uncertainty of predicted/expected values
+  - calculate quantities of interest
+
+This is a very important lab session. You can benefit a lot if you work through it step by step at home and read the @King_et_al_2000 article again.
+
+But first we have another look at interaction effects.
+
+------------------------------------------------------------------------
+
+```{r setup}
+# The first line sets an option for the final document that can be produced from
+# the .Rmd file. Don't worry about it.
+knitr::opts_chunk$set(
+  echo = TRUE,
+  attr.output = 'style="max-height: 200px;"'
+  # collapse = TRUE
+)
+
+# The next bit is quite powerful and useful.
+# First you define which packages you need for your analysis and assign it to
+# the p_needed object.
+p_needed <-
+  c("viridis", # we will use magma palette this time 
+    "dplyr", # for preprocessing 
+    "broom", # for tidy model output 
+    "dagitty", # for the DAG in appendix
+    "ggplot2",
+    "scales",
+    "equatiomatic", # to extract regression equations from models 
+    "MASS" # to draw from the multivariate normal distribution
+    )
+
+# Now you check which packages are already installed on your computer.
+# The function installed.packages() returns a vector with all the installed
+# packages.
+packages <- rownames(installed.packages())
+
+# Then you check which of the packages you need are not installed on your
+# computer yet. Essentially you compare the vector p_needed with the vector
+# packages. The result of this comparison is assigned to p_to_install.
+p_to_install <- p_needed[!(p_needed %in% packages)]
+# If at least one element is in p_to_install you then install those missing
+# packages.
+if (length(p_to_install) > 0) {
+  install.packages(p_to_install)
+}
+
+# Now that all packages are installed on the computer, you can load them for
+# this project. Additionally the expression returns whether the packages were
+# successfully loaded.
+sapply(p_needed, require, character.only = TRUE)
+
+# This is an option for stargazer tables
+# It automatically adapts the output to html or latex,
+# depending on whether we want a html or pdf file
+stargazer_opt <- ifelse(knitr::is_latex_output(), "latex", "html")
+```
+
+
+# Understanding Marginal Effects for Categorical and Continuous Moderators
+
+So far, we have only looked at interactions between a continuous predictor and a categorical moderating variable. We can, however, easily generalize this idea to continuous-by-continuous interactions.
+
+The data frame `ia_data` contains four variables: An outcome variable `y`, a continuous predictor `x`, and two versions of a moderating variable: The continuous `z_con` and the binary/categorical `z_cat`. 
+
+Below, we run two models of the form $\hat{y} = \beta_1 + \beta_2 x + \beta_3 z + \beta_4 x z$, using the continuous and categorical moderators, respectively.
+
+```{r understanding-marginal-effects}
+## Load data
+load("raw-data/ia_data.RData")
+
+## Model with continuous moderator
+mod_con <- lm(y ~ x * z_con, data = ia_data)
+summary(mod_con)
+
+## Model with categorical moderator
+mod_cat <- lm(y ~ x * z_cat, data = ia_data)
+summary(mod_cat)
+```
+
+## Calculate linear predictions
+
+Next, we want to calculate the linear prediction, $\hat{y}$, as a function of $x$ at different values of the moderating variable $z$. (Please note that this does not mean that $z$ is a mediator in a causal graph. Here the term moderating variable is used to say that the effect of $x$ on $y$ is influenced by $z$.) When using `z_cat`, this is easy. As before, we calculate values for two lines: One when `z_val_cat` = 0 and one when `z_val_cat` = 1. When using the continuous moderator `z_cont` things are a bit more intricate. We need to select a range of values of `z_cont` at which we want to calculate the relationship between $y$ and $x$. Here, we use the following values:
+
+  + minimum 
+  + 1st percentile
+  + 1st decile
+  + 1st quartile
+  + the median
+  + 3rd quartile
+  + 9th decile
+  + 99th percentile
+  + maximum
+
+```{r calculate-linear-predictions}
+## function for the linear prediction
+pred_lm <- function (b, x, z) {
+  preds <- matrix(NA, length(x), length(z))
+  for (i in seq_len(length(z))) {
+    preds[, i] <- b[1] + b[2] * x + b[3] * z[i] + b[4] * x * z[i]
+  }
+  return(preds)
+}
+
+## use the function for the continuous model
+b_con <- coef(mod_con)
+x_vals <- seq(min(ia_data$x), max(ia_data$x), length.out = 101)
+z_vals_con <- quantile(ia_data$z_con, 
+                       c(0, .01, .1, .25, .5, .75, .9, .99, 1))
+preds_con <- pred_lm(b_con, x_vals, z_vals_con)
+
+## ..and for the categorical model
+b_cat <- coef(mod_cat)
+z_vals_cat <- c(0, 1)
+preds_cat <- pred_lm(b_cat, x_vals, z_vals_cat)
+```
+
+## Calculate marginal effects
+
+Next, we want to calculate the marginal effect of each of the predicted lines. As we know from the lecture (Week 06, slide 27), if we have a regression equation of the form $y = \beta_1 + \beta_2 x + \beta_3 z + \beta_4 x z + \epsilon$, then the marginal effect of $x$ can be obtained by taking the partial derivative with respect to $x$: 
+
+$$
+\underbrace{\frac{\partial y}{\partial x}}_{\text{Notation for partial derivative}} = \underbrace{\beta_2 + \beta_4 z}_{\text{Marginal effect of x}}
+$$ 
+
+```{r calculate-marginal-effects}
+## function for the marginal effect
+mfx_lm <- function (b, z) {
+  b[2] + b[4] * z
+}
+
+## use the function for the continuous model
+mfx_con <- mfx_lm(b_con, z_vals_con)
+
+## use the function for the continuous model
+mfx_cat <- mfx_lm(b_cat, z_vals_cat)
+```
+
+## Calculate standard errors of estimated marginal effects
+
+Lastly, we also want to calculate the standard errors for our estimated marginal effects of $x$. Per the lecture slides (Week 06, slide 27), we know the formula is 
+
+$$
+\hat{\sigma}_{\frac{\partial y}{\partial x}} = \sqrt{\text{var}(\hat{\beta_2}) + z^2 \text{var}(\hat{\beta_4}) + 2 z \text{cov}(\hat{\beta_2}, \hat{\beta_4})}
+$$
+
+
+```{r calculate-standard-errors-of-estimated-marginal-effects}
+## function for the standard error of the marginal effect
+se_mfx <- function (vcov, z) {
+  sqrt(vcov[2, 2] + z ^ 2 * vcov[4, 4] + 2 * z * vcov[4, 2])
+}
+
+## use the function for the continuous model
+vcov_con <- vcov(mod_con)
+se_mfx_con <- se_mfx(vcov_con, z_vals_con)
+
+## use the function for the continuous model
+vcov_cat <- vcov(mod_cat)
+se_mfx_cat <- se_mfx(vcov_cat, z_vals_cat)
+```
+
+## Plot the results
+
+Using our stored objects for 
+
+- the linear predictions of $y$ as a function of $x$ at the specified values of $z$.
+- the marginal effects $\frac{\partial y}{\partial x}$ at the specified values of $z$.
+- and the corresponding standard errors $\hat{\sigma}_{\frac{\partial y}{\partial x}}$.
+
+we can now plot the linear predictions and the marginal effects (with confidence intervals) for both scenarios of categorical and continuous moderation side-by-side:
+
+```{r plot-the-results}
+## set up a 2-by-2 plot (and adjust plot margins)
+par(mfrow = c(2, 2),
+    mar = c(5.1, 6.1, 4.1, 2.1))
+
+## Plot 1: Linear Prediction (Categorical)
+col_vec <- viridis(length(se_mfx_cat))
+plot(
+  x = ia_data$x,
+  y = ia_data$y,
+  pch = 16,
+  xlab = "x",
+  ylab = "y",
+  type = "n",
+  bty = "n",
+  las = 1,
+  main = "Linear Prediction (Categorical)",
+  bty = "n"
+)
+
+for (i in seq_len(ncol(preds_cat))) {
+  lines(
+    x = x_vals,
+    y = preds_cat[, i],
+    lty = i,
+    col = col_vec[i]
+  )
+}
+
+## Plot 2: Marginal Effect (Categorical)
+col_vec <- viridis(length(se_mfx_cat))
+plot (
+  x = z_vals_cat,
+  y = mfx_cat,
+  pch = 16,
+  xlab = "z",
+  ylab = "", # added manually later 
+  type = "n",
+  bty = "n",
+  las = 1,
+  main = "Marginal Effect (Categorical)",
+  xlim = c(-1, 2),
+  ylim = c(-2, 12),
+  axes = F,
+  bty = "n"
+)
+
+abline(h = 0, col = 'gray60', lwd = .5)
+axis(1,
+     at = z_vals_cat)
+axis(2, las = 1)
+
+# add the label for y-axis separately, horizontally 
+text(bquote(frac(partialdiff ~ y, partialdiff ~ x)), xpd = TRUE, x = -1.6, y = 6)
+
+for (i in 1:length(se_mfx_cat)) {
+  points(
+    x = z_vals_cat[i],
+    y = mfx_cat[i],
+    pch = 16,
+    col = col_vec[i]
+  )
+}
+for (i in 1:length(se_mfx_cat)) {
+  segments(
+    z_vals_cat[i],
+    mfx_cat[i] + qnorm(.025) * se_mfx_cat[i],
+    z_vals_cat[i],
+    mfx_cat[i] + qnorm(.975) * se_mfx_cat[i],
+    col = col_vec[i]
+  )
+}
+
+## Plot 3: Linear Prediction (Continuous)
+col_vec <- viridis(length(se_mfx_con))
+plot (
+  x = ia_data$x,
+  y = ia_data$y,
+  pch = 16,
+  xlab = "x",
+  ylab = "y",
+  type = "n",
+  bty = "n",
+  las = 1,
+  main = "Linear Prediction (Continuous)",
+  bty = "n"
+)
+
+for (i in 1:ncol(preds_con)) {
+  lines(
+    x = x_vals,
+    y = preds_con[, i],
+    lty = i,
+    col = col_vec[i]
+  )
+}
+
+## Plot 4: Marginal Effect (Continuous)
+col_vec <- viridis(length(se_mfx_con))
+plot (
+  x = z_vals_con,
+  y = mfx_con,
+  pch = 16,
+  xlab = "z",
+  ylab = "",
+  type = "n",
+  bty = "n",
+  axes = F,
+  main = "Marginal Effect (Continuous)",
+  xlim = c(-4, 8),
+  ylim = c(-3, 13),
+  bty = "n"
+)
+axis(1)
+axis(2,
+     las = 1,
+     at = seq(-2,12, by = 2))
+
+abline(h = 0, col = 'gray60', lwd = .5)
+
+text(bquote(frac(partialdiff ~ y, partialdiff ~ x)), xpd = TRUE, x = -6.2, y = 6)
+
+for (i in 1:length(se_mfx_con)) {
+  points(
+    x = z_vals_con[i],
+    y = mfx_con[i],
+    pch = 16,
+    col = col_vec[i]
+  )
+}
+for (i in 1:length(se_mfx_con)) {
+  segments(
+    z_vals_con[i],
+    mfx_con[i] + qnorm(.025) * se_mfx_con[i],
+    z_vals_con[i],
+    mfx_con[i] + qnorm(.975) * se_mfx_con[i],
+    col = col_vec[i]
+  )
+}
+
+## Add contiguous lines for mfx and se's to the last plot
+## Compute first...
+z_vals_fine <-
+  seq(min(ia_data$z_con), max(ia_data$z_con), length.out = 101)
+mfx_fine <- mfx_lm(b_con, z_vals_fine)
+se_mfx_fine <- se_mfx(vcov_con, z_vals_fine)
+
+## ... then plot
+lines(z_vals_fine, mfx_fine, col = adjustcolor("black", alpha = 0.5))
+lines(
+  z_vals_fine,
+  mfx_fine + qnorm(.025) * se_mfx_fine,
+  lty = 2,
+  col = adjustcolor("black", alpha = 0.5)
+)
+lines(
+  z_vals_fine,
+  mfx_fine + qnorm(.975) * se_mfx_fine,
+  lty = 2,
+  col = adjustcolor("black", alpha = 0.5)
+)
+```
+
+
+## Review: Prediction So Far {.tabset}
+
+We use the 2013 election data set again.
+
+```{r review-prediction-1}
+load(file = "raw-data/election2013_2.RData")
+
+df <- as.data.frame(election2013_2)
+```
+
+Similar to the homework, we regress `leftvote` on `unemployment` and `east`. Additionally, we include a multiplicative interaction term `unemployment*east`. 
+
+```{r review-prediction-2}
+reg <- lm(leftvote ~ unemployment + east + 
+            unemployment*east, 
+          data = df)
+summary(reg)
+```
+
+Review: How did we make predictions so far?
+
+```{r review-prediction-3}
+# 1. Get the coefficients.
+intercept <- coef(reg)[1]
+slopes <- coef(reg)[2:4]
+
+# 2. Choose interesting covariates' values.
+x_east0 <- 0
+x_east1 <- 1
+x_unemp <- seq(0, 20, 0.1)
+
+# 3.1. Write your predict function.
+predict_mu <- function(intercept, slopes, x1, x2) {
+  intercept + slopes[1] * x1 + slopes[2] * x2 + slopes[3] * x1 * x2
+}
+
+#3.2. Let the function do the work for you.
+pred_leftvote_west <-
+  predict_mu(intercept, slopes, x1 = x_unemp, x2 = x_east0)
+pred_leftvote_east <-
+  predict_mu(intercept, slopes, x1 = x_unemp, x2 = x_east1)
+```
+
+### Base R {-}
+
+```{r review-prediction-base-r}
+# 4. Plot it.
+# 4.1. Plot the observations.
+plot(
+  x_unemp,
+  pred_leftvote_west,
+  type = "n",
+  bty = "n",
+  las = 1,
+  lwd = 2,
+  ylim = c(0, 30),
+  ylab = "Predicted Voteshare (Die Linke) in %",
+  xlab = "Unemployment in %",
+  main = "Left Voteshare and Unemployment"
+)
+
+points(df$unemployment,
+       df$leftvote ,
+       pch = 19,
+       col = ifelse(df$east == 1, 
+                    viridis(2, alpha = 0.3, end = 0.5)[1], 
+                    viridis(2, alpha = 0.3, end = 0.5)[2])
+       )
+
+# 4.2. Add the lines on top.
+
+lines(
+  x = x_unemp,
+  y = pred_leftvote_west,
+  lwd = 2,
+  col = viridis(2, end = 0.5)[2]
+)
+lines(
+  x = x_unemp,
+  y = pred_leftvote_east,
+  lwd = 2,
+  col = viridis(2, end = 0.5)[1]
+)
+
+# What is missing?
+```
+
+### ggplot2 {-}
+
+```{r review-prediction-ggplot2}
+ggplot(
+  data = df,
+  aes(x = unemployment, y = leftvote, group = as.character(east))
+) +
+  geom_point(
+    aes(color = east, alpha = 0.5)
+  ) +
+  geom_line(mapping = aes(y = predict(reg), 
+                          color = east)) +
+  theme_classic() +
+  labs(
+    x = "Unemployment in %",
+    y = "Predicted Voteshare (Die Linke) in %",
+    color = "",
+    title = "Left Voteshare and Unemployment"
+  ) +
+  theme(legend.position = "none")
+```
+
+
+# Meet the apply function
+
+Before we start with our simulations - meet the `apply` function.
+
+Description: "Returns a vector or array or list of values obtained by applying a function to margins of an array or matrix."
+
+```{r meet-the-apply-function-1}
+vars <- df[, 2:4]
+
+vars
+```
+
+**What are margins?** 
+
+Type 1 for rows, 2 for columns, (1:2) for both
+
+General usage: `apply(X, MARGIN, FUN, ...)`
+
+Let's start with column means.
+
+```{r meet-the-apply-function-2}
+means <- apply(vars, 2,  mean)
+
+means
+```
+
+Use apply to plot...
+
+```{r meet-the-apply-function-3}
+apply(vars, 2, hist, col = viridis(1), border = "white", las = 1)
+
+# How about row sums?
+
+sums <- apply(vars, 1, sum)
+
+sums
+
+# Combining functions in a function.
+
+multi_fun <- function(x) {
+  c(min = min(x),
+    mean = mean(x),
+    max = max(x))
+}
+
+# And then use the multi_fun with apply.
+
+apply(vars, 2, multi_fun)
+```
+
+## Working with the apply function
+
+1) We want to quickly calculate the 2.5%, 50% and 97.5% quantiles of the variables in the data set using the apply function. Just as with the plots above, we can specify additional arguments to the function call in the apply function. Here: `probs = c(0.025, 0.5, 0.975)`.
+
+2) Now combine some functions to get the 2.5 % and 97.5 % quantiles as well as the mean.
+  We call this function quants_mean_fun
+
+```{r working-with-the-apply-function}
+quants <- apply(vars, 2, quantile, probs = c(0.025, 0.5, 0.975))
+
+quants
+
+# Now combine some functions to get the 2.5 % and 97.5 % quantiles
+# as well as the mean.
+
+quants_mean_fun <-  function(x) {
+  c(quants = quantile(x, probs = c(0.025, 0.975)),
+    mean = mean(x))
+}
+
+quants_mean <- apply(vars, 2, quants_mean_fun)
+quants_mean
+```
+
+Become familiar with apply and your R code will be short and fast!
+
+# Simulation of Expected Values
+
+Now we get started with simulations. I hope you all read the @King_et_al_2000 article. And you remember the five steps of simulation from the lecture.
+
+Our first goal is to get so-called expected values, $E(Y|X)$. Expected values are the average (_expected_) value of a variable $Y$, conditional on a particular set of $X$ values. For example, we could be interested in the expected vote share of the Party _Die Linke_ in a West German district with an unemployment rate of $6.7\%$ (this amounts to the nationwide average unemployment rate). In mathematical terms, this would be $E(\text{Leftvote} | \text{West}, \text{Unempl.} = 0.067)$.
+
+Let's do this:
+
+## Step 1 - Get the regression coefficients. {-}
+
+```{r step-1-get-the-regression-coefficients}
+beta_hat <- coef(reg)
+```
+
+## Step 2 - Generate sampling distribution. {-}
+
+### Step 2.1. Get the variance-covariance matrix.  {-}
+
+```{r step-2-1-get-the-variance-covariance-matrix}
+V_hat <- vcov(reg) 
+
+# What are the diagonal elements?
+
+sqrt(diag(V_hat))
+```
+
+### Step 2.2. Draw from the multivariate normal distribution. {-}
+
+```{r step-2-2-draw-from-the-multivariate-normal-distribution}
+# We need the MASS package
+
+library(MASS)
+
+# Set the number of draws/simulations.
+
+nsim <- 1000 
+
+# Draw from the multivariate normal distribution to get S.
+
+S <- mvrnorm(nsim, beta_hat, V_hat)
+
+dim(S) # Check dimensions
+
+# We now can use S to get both expected and predicted values.
+```
+
+## Step 3 - Choose interesting covariate values. Also known as: Set a scenario. {-}
+
+E.g., difference in voteshare Die Linke for East and West.
+
+
+Tip: double-check the ordering of coefficients first, to put the values in the correct order.
+
+```{r step-3-set-a-scenario}
+names(beta_hat)
+X_east <- c(1, mean(df$unemployment), 1, mean(df$unemployment) * 1) # East
+X_west <- c(1, mean(df$unemployment), 0, mean(df$unemployment) * 0) # West
+```
+ 
+## Step 4 - Calculate Quantities of Interest {-}
+
+### Expected Values (E(Y|X)) {-}
+
+```{r expected-values}
+EV_east <- S %*% as.matrix(X_east)  
+
+# %*% is the operator for matrix multiplication
+
+EV_west <- S %*% as.matrix(X_west)
+
+# Even quicker: we put the scenarios in a matrix.
+
+X <- as.matrix(rbind(X_east, X_west))
+
+EV_combined <- S %*% t(X)
+```
+
+### First Differences {-}
+
+A first difference is the difference between two expected values:
+
+$$
+\underbrace{FD}_{\text{First Difference}} = \underbrace{E(Y | X_{1})}_{\text{Expected Value of first scenario}} - \underbrace{E(Y | X_{2})}_{\text{Expected Value of second scenario}}
+$$
+
+```{r first-differences}
+fd <- EV_combined[,1] - EV_combined[,2]
+```
+
+## Step 5 - Summarize Results {- .tabset} 
+
+Plot the expected values for west.
+
+### Base R {-}
+
+```{r expected-values-base-r}
+par(mfrow = c(1,2))
+hist(
+  EV_combined[, 2],
+  las = 1,
+  col = viridis(4)[1],
+  border = "white",
+  main = "",
+  xlab = "Expected Values for the voteshare of Die Linke for districts in the west
+     (With unemployment at its mean.)",
+)
+
+# Get mean and quantiles. We use our quants_mean_fun from above.
+
+quants_combined <- apply(EV_combined, 2, quants_mean_fun)
+
+# Add the lines to the plot.
+
+abline(v = c(quants_combined[, 2]),
+       lty = 2,
+       col = viridis(4)[4])
+
+# Of course we can do the same for east.
+
+hist(
+  EV_combined[, 1],
+  main = "",
+  las = 1,
+  col = viridis(4)[2],
+  border = "white",
+  xlab = "Expected Values for the voteshare of Die Linke for East
+     (With unemployment at its mean.)",
+)
+abline(v = c(quants_combined[, 1]),
+       lty = 2,
+       col = viridis(4)[4])
+
+# Similarly, we can plot the distribution of the First Differences
+dev.off()
+hist(
+  fd,
+  main = "",
+  las = 1,
+  col = viridis(4)[3],
+  border = "white",
+  xlab = "First Differences for the voteshare of Die Linke between East and West
+     (With unemployment at its mean.)"
+)
+
+# Get mean amd quantiles.
+
+quants_fd <- apply(as.matrix(fd), 2, quants_mean_fun)
+
+# Add the lines to the plot
+
+abline(v = quants_fd, lty = 2, col = viridis(4)[4])
+```
+
+### ggplot2 {-}
+
+```{r expected-values-ggplot2}
+# Expected Values, West
+ggplot() +
+  geom_histogram(aes(x = EV_combined[,2]),
+    boundary = 5.4,
+    binwidth = 0.1,
+    color = "white",
+    fill = viridis(4)[1]
+  ) +
+  labs(
+    x = "Expected Values for the voteshare of Die Linke for districts in the west
+     (With unemployment at its mean.)",
+    y = "Frequency"
+  ) +
+  geom_vline(xintercept = c(quants_combined[, 2]),
+             color = viridis(4)[4],
+             linetype = "dashed") +
+  theme_classic() +
+  scale_x_continuous(breaks = c(seq(5.4, 6.4, by = 0.2)))
+
+# Expected values, East
+ggplot() +
+  geom_histogram(aes(x = EV_combined[, 1]),
+    boundary = 19,
+    binwidth = 0.5,
+    color = "white",
+    fill = viridis(4)[2]
+  ) +
+  labs(
+    x = "Expected Values for the voteshare of Die Linke for districts in the east
+     (With unemployment at its mean.)",
+    y = "Frequency"
+  ) +
+  geom_vline(xintercept = c(quants_combined[, 1]),
+             color = viridis(4)[4],
+             linetype = "dashed") +
+  theme_classic() +
+  scale_x_continuous(breaks = c(seq(19, 23, by = 1)))
+
+# First Difference
+ggplot() +
+  geom_histogram(aes(x = fd),
+    boundary = 19,
+    binwidth = 0.5,
+    color = "white",
+    fill = viridis(4)[3]
+  ) +
+  labs(
+    x = "EFirst Differences for the voteshare of Die Linke between East and West
+     (With unemployment at its mean.)",
+    y = "Frequency"
+  ) +
+  geom_vline(xintercept = c(quants_fd),
+             color = viridis(4)[4],
+             linetype = "dashed") +
+  theme_classic() +
+  scale_x_continuous(breaks = c(seq(13, 27, by = 1)))
+```
+
+
+So far the scenarios were rather boring. Let's do something more exciting! We calculate expected values over a **range of unemployment**.
+
+**We go back to Step 3.**
+
+## Step 3 - Choose covariate values. {-}
+
+This time we choose a range of covariate values.
+
+```{r step-3-choose-covariate-values-sequence}
+unemp <- seq(0, 20, 0.1)  # Range from 0 to 20, in steps of 0.1
+scenario_east <- cbind(1, unemp, 1, unemp * 1) 
+scenario_west <- cbind(1, unemp, 0, unemp * 0)
+```
+
+## Step 4 - Calculate Quantities of Interest {-}
+
+```{r step-4-calculate-quantities-of-interest}
+EV_range_east <- S %*% t(scenario_east)
+EV_range_west <- S %*% t(scenario_west)
+
+dim(EV_range_west)
+
+# Quantiles, we again use apply and our quants.mean.fun
+quants_range_east <- apply(EV_range_east, 2, quants_mean_fun)
+quants_range_west <- apply(EV_range_west, 2, quants_mean_fun)
+```
+
+## Step 5 - Summarize Results {- .tabset}
+
+### Base R {-}
+
+```{r summarize-result-base-r}
+# Plot
+plot(
+  unemp,
+  quants_range_east[2,],
+  pch = 19,
+  cex = 0.3,
+  bty = "n",
+  las = 1,
+  ylim = c(0, 35),
+  ylab = "Voteshare (%)",
+  main = "Expected Voteshare (Die Linke)",
+  xlab = "Range of Unemployment",
+  type = "n"
+)
+
+# Let's add our actual observations.
+
+points(df$unemployment,
+       df$leftvote,
+       pch = 19,
+       col = adjustcolor(viridis(3)[1], alpha = 0.5))
+
+# Now we add the lines.
+lines(unemp, quants_range_east[3,], 
+      col = viridis(3)[2])
+
+lines(unemp, quants_range_west[3,],
+      col = viridis(3)[3])
+
+# Let's add those confidence intervals.
+
+# First, for east:
+lines(unemp, quants_range_east[1,], lty = "dashed", col = viridis(3)[2])
+lines(unemp, quants_range_east[2,], lty = "dashed", col = viridis(3)[2])
+
+# And for west:
+
+lines(unemp, quants_range_west[1,], lty = "dashed", col = viridis(3)[3])
+lines(unemp, quants_range_west[2,], lty = "dashed", col = viridis(3)[3])
+
+# Add a legend
+
+legend("topleft",
+       lty = "solid",
+       col = viridis(3)[2:3],
+       legend = c("East", "West"),
+       cex = 0.8,
+       bty = "n")
+```
+
+There are many different ways to plot confidence intervals. Pick the style you like most. E.g., we can use polygons to plot the confidence intervals:
+
+```{r summarize-result-base-r-2}
+plot(
+  unemp,
+  quants_range_east[2,],
+  pch = 19,
+  cex = 0.3,
+  bty = "n",
+  las = 1,
+  ylim = c(0, 35),
+  ylab = "Voteshare (%)",
+  main = "Expected Voteshare (Die Linke)",
+  xlab = "Range of Unemployment",
+  type = "n"
+)
+
+points(df$unemployment,
+       df$leftvote,
+       pch = 19,
+       col = adjustcolor(viridis(3)[1], alpha = 0.8))
+
+polygon(
+  x = c(unemp, rev(unemp)),
+  y = c(quants_range_east[1 ,], rev(quants_range_east[2 ,])),
+  col = adjustcolor(viridis(3)[2], alpha = 0.5),
+  border = NA
+)
+polygon(
+  x = c(unemp, rev(unemp)),
+  y = c(quants_range_west[1 ,], rev(quants_range_west[2 ,])),
+  col = adjustcolor(viridis(3)[3], alpha = 0.5),
+  border = NA
+)
+
+
+lines(unemp, quants_range_east[3,], col = viridis(3)[2])  # In this case I usually plot the polygons first and then the lines.
+
+lines(unemp, quants_range_west[3,],
+      col = viridis(3)[3])
+
+# Add a legend
+
+legend("topleft",
+       lty = "solid",
+       col = viridis(3)[2:3],
+       legend = c("East", "West"),
+       cex = 0.8,
+       bty = "n")
+```
+
+### ggplot2 {-}
+
+```{r summarize-result-ggplot2}
+# data frame for EV east
+plot_ev_west <- data.frame(t(quants_range_west))
+names(plot_ev_west) <- c("ci_lo", "ci_hi", "mean")
+plot_ev_west$unemp <- unemp
+plot_ev_west$east <- 0
+
+# data frame for EV east
+plot_ev_east <- data.frame(t(quants_range_east))
+names(plot_ev_east) <- c("ci_lo", "ci_hi", "mean")
+plot_ev_east$unemp <- unemp
+plot_ev_east$east <- 1
+
+# combine data frames
+plot_ev <- rbind(plot_ev_west, plot_ev_east)
+
+# plot
+ggplot(
+  data = df,
+  aes(x = unemployment, y = leftvote,
+      group = east)
+) +
+  geom_point(
+    color = viridis(2, 0.5)[1]
+  ) +
+  # add mean expected values
+  geom_line(data = plot_ev, aes(x = unemp, 
+                                y = mean,
+                                group = east)) +
+  # add confidence intervals
+  geom_line(data = plot_ev, aes(x = unemp, 
+                                y = ci_lo,
+                                group = east),
+            linetype = "dashed") +
+  geom_line(data = plot_ev, aes(x = unemp, 
+                                y = ci_hi,
+                                group = east),
+            linetype = "dashed") +
+  theme_classic() +
+  labs(
+    x = "Unemployment in %",
+    y = "Predicted Voteshare (Die Linke) in %",
+    color = "",
+    title = "Left Voteshare and Unemployment"
+  ) +
+  theme(legend.position = "none")
+```
+
+
+# Exercise Session
+
+Today's exercise session is not about the generation of new code, but about *better understanding* what we did so far. Together with your neighbour, try to answer the following questions by going through and playing around with the code that we have written in the previous lines.
+
+1. What does `mvrnorm` do?
+2. What are the dimensions of `S`? Why?
+3. What do you need to specify in a scenario vector/interesting covariate values? (E.g. `scenario_east`)
+4. Is the order of the elements in the scenario vector important?
+5. What would we need to do to get predicted values instead of expected values?
+
+# Simulation of Predicted Values Y|X
+
+Now we also want to simulate predicted values. What's different from expected values?
+
+ - Step 1 - Get the regression coefficients.
+    - Exactly the same as above.
+    
+ - Step 2 - Generate sampling distribution.
+    - Exactly the same as above.
+    
+ - Step 3 - Choose covariate values. 
+    -  Exactly the same as above.
+
+```{r simulation-of-predicted-values}
+X_east <- c(1, mean(df$unemployment), 1, mean(df$unemployment) * 1) # East
+X_west <- c(1, mean(df$unemployment), 0, mean(df$unemployment) * 0) # West
+
+X <- as.matrix(rbind(X_east, X_west))
+```
+
+## Step 4 - Calculate Quantities of Interest: **Predicted Values** {-}
+
+This is still the same as above.
+
+```{r step-4-calculate-quantities-of-interest-predicted-values-1}
+EV_combined <- S %*% t(X)
+```
+
+Now we need to add something. Remember `sigma_est` (i.e. $\hat\sigma$) from last lab/lecture? That's the fundamental uncertainty!
+
+```{r step-4-calculate-quantities-of-interest-predicted-values-2}
+# Y ~ N(mu_c, sigma_est)
+sigma_est <- sqrt(sum(residuals(reg)^2) / (nrow(df) - length(beta_hat)))
+
+Y_hat_east <- EV_combined[,1] + rnorm(nsim, 0, sigma_est)
+Y_hat_west <- EV_combined[,2] + rnorm(nsim, 0, sigma_est)
+
+
+# Quantiles
+quants_east <- quants_mean_fun(Y_hat_east)
+quants_west <- quants_mean_fun(Y_hat_west)
+```
+
+Let's plot it:
+
+```{r step-4-calculate-quantities-of-interest-predicted-values-3}
+# Histogram Predicted Values West Germany
+hist(Y_hat_west,
+     las = 1,
+     main = "Histogram of Predicted Values (West Germany)",
+     col = viridis(3)[1], 
+     border = "white")
+abline(v = c(quants_west[1:3]), lty = 2, col = viridis(3)[3])
+
+# Histogram Predicted Values East Germany
+hist(Y_hat_east,
+     las = 1,
+     main = "Histogram of Predicted Values (East Germany)",
+     col = viridis(3)[2], 
+     border = "white")
+abline(v = c(quants_east[1:3]), lty = 2, col = viridis(3)[3])
+
+# We could put both distributions in one plot.
+plot(density(Y_hat_west), 
+     xlim = c(0,40), 
+     lwd = 2 ,
+     bty = "n", 
+     yaxt = "n", 
+     ylab = "", 
+     xlab = "Left Voteshare in %",
+     main = "Predicted Values for Voteshare",
+     type = "n")
+lines(density(Y_hat_west, from = min(Y_hat_west), to = max(Y_hat_west)), lwd = 2, col = viridis(3)[1])
+lines(density(Y_hat_east, from = min(Y_hat_east), to = max(Y_hat_east)), lwd = 2, col = viridis(3)[2])
+abline(v = c(quants_west[1:3]), lty = 2, col = viridis(3)[3])
+abline(v = c(quants_east[1:3]), lty = 2, col = viridis(3)[3])
+```
+
+**Let's also do it for a range of unemployment.**
+
+## Step 4 - Calculate Quantities of Interest over a range {-}
+
+```{r step-4-calculate-quantities-of-interest-over-a-range-1}
+EV_range_east <- S %*% t(scenario_east)
+EV_range_west <- S %*% t(scenario_west)
+
+Y_hat_range_east <- EV_range_east + rnorm(nsim, 0, sigma_est)
+Y_hat_range_west <- EV_range_west + rnorm(nsim, 0, sigma_est)
+
+# Quantiles, we again use apply and our quants_mean_fun
+Y_quants_range_east <- apply(Y_hat_range_east, 2, quants_mean_fun)
+Y_quants_range_west <- apply(Y_hat_range_west, 2, quants_mean_fun)
+```
+
+Plot it with polygons as confidence intervals.
+
+```{r step-4-calculate-quantities-of-interest-over-a-range-2}
+plot(
+  unemp,
+  Y_quants_range_east[2, ],
+  las = 1,
+  bty = "n",
+  pch = 19,
+  cex = 0.3,
+  ylim = c(0, 45),
+  ylab = "Voteshare (%)",
+  main = "Predicted Voteshare (Die Linke)",
+  xlab = "Range of Unemployment",
+  type = "n"
+)
+
+points(df$unemployment,
+       df$leftvote ,
+       pch = 19,
+       col = adjustcolor(viridis(3)[1], alpha = 0.8))
+
+polygon(
+  x = c(unemp, rev(unemp)),
+  y = c(Y_quants_range_east[1 , ], rev(Y_quants_range_east[2 , ])),
+  col = adjustcolor(viridis(3)[2], alpha = 0.5),
+  border = NA
+)
+polygon(
+  x = c(unemp, rev(unemp)),
+  y = c(Y_quants_range_west[1 , ], rev(Y_quants_range_west[2 , ])),
+  col = adjustcolor(viridis(3)[3], alpha = 0.5),
+  border = NA
+)
+
+
+lines(unemp, Y_quants_range_east[3, ],
+      col = viridis(3)[2])
+
+lines(unemp, Y_quants_range_west[3, ],
+      col = viridis(3)[3])
+
+# Add a legend
+
+legend("topleft",
+       lty = "solid",
+       col = viridis(3)[2:3],
+       legend = c("East", "West"),
+       cex = 0.8,
+       bty = "n")
+```
+
+```{r step-4-calculate-quantities-of-interest-over-a-range-3}
+# data frame for EV east
+plot_pv_west <- data.frame(t(Y_quants_range_west))
+names(plot_pv_west) <- c("ci_lo", "ci_hi", "mean")
+plot_pv_west$unemp <- unemp
+plot_pv_west$east <- 0
+
+# data frame for EV east
+plot_pv_east <- data.frame(t(Y_quants_range_east))
+names(plot_pv_east) <- c("ci_lo", "ci_hi", "mean")
+plot_pv_east$unemp <- unemp
+plot_pv_east$east <- 1
+
+# combine data frames
+plot_pv <- rbind(plot_pv_west, plot_pv_east)
+
+# plot
+ggplot(
+  data = df,
+  aes(x = unemployment, y = leftvote,
+      group = east)
+) +
+  geom_point(
+    color = viridis(2, 0.5)[1]
+  ) +
+  # add mean expected values
+  geom_line(data = plot_pv, aes(x = unemp, 
+                                y = mean,
+                                group = east)) +
+  # add confidence intervals
+  geom_line(data = plot_pv, aes(x = unemp, 
+                                y = ci_lo,
+                                group = east),
+            linetype = "dashed") +
+  geom_line(data = plot_pv, aes(x = unemp, 
+                                y = ci_hi,
+                                group = east),
+            linetype = "dashed") +
+  theme_classic() +
+  labs(
+    x = "Unemployment in %",
+    y = "Predicted Voteshare (Die Linke) in %",
+    color = "",
+    title = "Left Voteshare and Unemployment"
+  ) +
+  theme(legend.position = "none")
+```
+
+
+The confidence bounds are wider because we take the fundamental uncertainty of our model into account. 
+To see this we can plot the expected values plot and predicted values plot side by side.
+
+```{r step-4-calculate-quantities-of-interest-over-a-range-4}
+par(mfrow=c(1,2))
+
+# Plot "Expected Voteshares" of Die Linke
+
+plot(
+  unemp,
+  quants_range_east[2,],
+  pch = 19,
+  cex = 0.3,
+  bty = "n",
+  las = 1,
+  ylim = c(0, 45),
+  ylab = "Voteshare (%)",
+  main = "Expected Voteshare (Die Linke)",
+  xlab = "Range of Unemployment",
+  type = "n"
+)
+
+points(df$unemployment,
+       df$leftvote,
+       pch = 19,
+       col = adjustcolor(viridis(3)[1], alpha = 0.8))
+
+polygon(
+  x = c(unemp, rev(unemp)),
+  y = c(quants_range_east[1 ,], rev(quants_range_east[2 ,])),
+  col = adjustcolor(viridis(3)[2], alpha = 0.5),
+  border = NA
+)
+polygon(
+  x = c(unemp, rev(unemp)),
+  y = c(quants_range_west[1 ,], rev(quants_range_west[2 ,])),
+  col = adjustcolor(viridis(3)[3], alpha = 0.5),
+  border = NA
+)
+
+
+lines(unemp, quants_range_east[3,], col = viridis(3)[2])  # In this case I usually plot the polygons first and then the lines.
+
+lines(unemp, quants_range_west[3,],
+      col = viridis(3)[3])
+
+# Add a legend
+
+legend("topleft",
+       lty = "solid",
+       col = viridis(3)[2:3],
+       legend = c("East", "West"),
+       cex = 0.8,
+       bty = "n")
+
+# Plot "Predicted Voteshares" of Die Linke
+
+plot(
+  unemp,
+  Y_quants_range_east[2, ],
+  las = 1,
+  bty = "n",
+  pch = 19,
+  cex = 0.3,
+  ylim = c(0, 45),
+  ylab = "Voteshare (%)",
+  main = "Predicted Voteshare (Die Linke)",
+  xlab = "Range of Unemployment",
+  type = "n"
+)
+
+points(df$unemployment,
+       df$leftvote ,
+       pch = 19,
+       col = adjustcolor(viridis(3)[1], alpha = 0.8))
+
+polygon(
+  x = c(unemp, rev(unemp)),
+  y = c(Y_quants_range_east[1 , ], rev(Y_quants_range_east[2 , ])),
+  col = adjustcolor(viridis(3)[2], alpha = 0.5),
+  border = NA
+)
+polygon(
+  x = c(unemp, rev(unemp)),
+  y = c(Y_quants_range_west[1 , ], rev(Y_quants_range_west[2 , ])),
+  col = adjustcolor(viridis(3)[3], alpha = 0.5),
+  border = NA
+)
+
+
+lines(unemp, Y_quants_range_east[3, ],
+      col = viridis(3)[2])
+
+lines(unemp, Y_quants_range_west[3, ],
+      col = viridis(3)[3])
+```
+
+# Concluding Remarks {-}
+
+In your homework you will have a lot of fun with simulations.
+
+
+# References {-}
+
+

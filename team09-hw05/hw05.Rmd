@@ -1,0 +1,513 @@
+---
+title: "Quantitative Methods in Political Science - Homework 5"
+author: "Tobias Fechner (50%), Simran Suresh Bhurat (50%)"
+date: "Due: October 19, 2021"
+output:
+  html_document:
+    toc: no
+  pdf_document:
+    toc: yes
+---
+
+
+## Part 1: Peer review
+
+Your first exercise is to give your peers feedback on their work. Scientific journals often conduct peer reviews to select papers for publication. A couple of peers, reviewers who are familiar to the field of study or the methodology, will be asked to review your work. This is exactly what you will do as part of this week's assignment. All of you get to be the reviewer in this exercise.
+
+Your team will be provided with a report of another team's **write up for Homework 4 in pdf** format. The write up and an **Rmd template for your feedback** will be uploaded to your repos by **October 13, 12:00 CEST (noon)**, after the submission deadline for Homework 4 has passed.
+
+Read through the results reported by another team in **hw04.pdf**. Your task is to provide constructive feedback. Discuss the interpretation and presentation of results. Provide your ideas for improvement. If you find errors in the code, you can and should suggest corrections. Note that each member of the team needs to contribute here (we will check this with commit history of your repo). 
+
+In the end, each group is required to commit their feedback using the provided **hw04_feedback.rmd** template file. This file will be shared with the team whose work you were evaluating. As usual, make sure that you update your local version of the repository **every time you start working**, so the changes committed by your other team members are updated on your device.
+
+
+```{r setup, include=FALSE}
+# The first line sets an option for the final document that can be produced from
+# the .Rmd file. Don't worry about it.
+knitr::opts_chunk$set(echo = TRUE)
+
+# The next bit (lines 22-43) is quite powerful and useful. 
+# First you define which packages you need for your analysis and assign it to 
+# the p_needed object. 
+p_needed <-
+  c("viridis", "stargazer", "dagitty", "glimpse")
+
+# Now you check which packages are already installed on your computer.
+# The function installed.packages() returns a vector with all the installed 
+# packages.
+packages <- rownames(installed.packages())
+# Then you check which of the packages you need are not installed on your 
+# computer yet. Essentially you compare the vector p_needed with the vector
+# packages. The result of this comparison is assigned to p_to_install.
+p_to_install <- p_needed[!(p_needed %in% packages)]
+# If at least one element is in p_to_install you then install those missing
+# packages.
+if (length(p_to_install) > 0) {
+  install.packages(p_to_install, repos = "http://cran.us.r-project.org")
+}
+# Now that all packages are installed on the computer, you can load them for
+# this project. Additionally the expression returns whether the packages were
+# successfully loaded.
+sapply(p_needed, require, character.only = TRUE)
+
+# This is an option for stargazer tables
+# It automatically adapts the output to html or latex,
+# depending on whether we want a html or pdf file
+stargazer_opt <- ifelse(knitr::is_latex_output(), "latex", "html")
+```
+
+**Notes:**
+
++ *If you do not have any special reason, please do not load additional packages (except `ggplot2`) to solve this homework assignment. If you nevertheless do so, please indicate why you think this is necessary and add the package to the `p_needed` vector in the setup chunk above.*
++ *Please try to answer the questions with **short** but very **precise** statements. However, do not hide behind seemingly fancy jargon.*
+
+## Part 2: Multivariate Regression
+
+*The `election2013_2` data set contains the following district-level variables for the German national elections of 2013:*
+
+|  Variable      |   Description                             |
+|:-------------: |:-----------------------------------------:|
+| `WKR_NAME`     | name of the district                      |
+| `leftvote`     | vote share for the party "Die Linke"      |
+| `unemployment` | unemployment rate                         |
+| `east`         | is the district located in the former GDR |
+
+Table: Variables in the `elections2013` data set.
+
+**2.1 You want to detect the total effect of unemployment rate in a district on the vote share of the left party. Inspect the relationship between unemployment and left voteshare.**
+
+ + *Hint: Make sure to check the types of variables before working. Some variables will require transformation before you can work with them.*
+ + *Examine the distributions of `leftvote`, `east` and `unemployment` numerically and/or graphically. Briefly summarize your results.*
+
+```{r Exercise 2_1}
+
+#Load the data
+load("raw-data/election2013.RData")
+```
+
+```{r}
+head(election2013_2)
+
+```
+
+```{r}
+# transformation of factor to numeric (double)
+class(election2013_2$leftvote)
+class(as.numeric(paste(election2013_2$leftvote)))
+length(election2013_2$leftvote)
+```
+
+```{r}
+#Convert the type from Factor to Numeric
+election2013_2$leftvote <- as.numeric(paste(election2013_2$leftvote))
+election2013_2$unemployment <- as.numeric(paste(election2013_2$unemployment))
+election2013_2$east <- as.numeric(paste(election2013_2$east))
+```
+
+
+```{r distribution of leftvote}
+boxplot(election2013_2$leftvote, horizontal=TRUE, main="Distribution of leftvote variable")
+```
+
+```{r}
+# Density plot and rug
+d <- density(election2013_2$leftvote)
+plot(d, type="n", main="distribution of leftvotes")
+polygon(d, col="lightgray", border="gray")
+rug(as.numeric(election2013_2$leftvote), col="red")
+
+```
+
+```{r}
+boxplot(election2013_2$unemployment, horizontal=TRUE, main="Distribution of unemployment rate")
+```
+
+```{r distribution of unemployment rate}
+# Density plot and rug
+d <- density(election2013_2$unemployment)
+plot(d, type="n", main="Distribution of unemployment rate")
+polygon(d, col="lightgray", border="gray")
+rug(as.numeric(election2013_2$unemployment), col="red")
+
+```
+
+
+
+```{r distribution of east compared to west germany}
+# a histogram would be more accurate, but this gives a nicer visualization of the binomial distribution
+
+# Density plot and rug
+d <- density(election2013_2$east)
+plot(d, type="n", main="Distribution of east compared to west germany")
+polygon(d, col="lightgray", border="gray")
+rug(as.numeric(election2013_2$east), col="red")
+
+```
+```{r}
+# 0 correspondences to amount of districts in west Germany
+# 1 correspondences to amount of districts in east Germany
+print(table(election2013_2$east))
+print("percentage of eastern districts: ")
+print(56/(243+56))
+
+```
+
+
+
+Answer: 
+
+The dataset previously analyzed consists of data from the various districts of Germany. These have a name and three other attributes:
+The unemployment rate, vote share for the party "Die Linke" as well as the fact whether the district was located in the GDR. In total there are 299 districts in the dataset.
+
+The distribution of the left vote variable has a mean of mean of 8.72 and is therefore quite low for a political party. It is interesting to see in the density distribution plot that there are either districts with a very high share in votes of around 23% or a quite low share. The plot is in general right screwed.
+
+The unemployment rate is more evenly distributed and a bit more concentrated to the left. This plot is also right screwed. 
+
+The last variable is a binomial variable. The district can either been in the GDR or not. But just  18.71% of the total districts are eastern districts. 
+
+
+
+**2.2 Which of the following DAGs describes the causal relations best? Please write a short paragraph on why you chose that DAG and also give reasons why you did not choose one of the other DAGs.**
+
+![Three DAGs](images/DAG_exercise.png)
+
+
+Answer: 
+
+In the picture are 3 different scenarios summarized:
+
++ *(a) is a confounder*
++ *(b) is a mediator*
++ *(c) is a collidors*
+
+In general we want to control for confounders and leave out mediators and collidors in our models. The determenistic value of being an eastern or western German state is binomial. 
+
+The first DAG that is the confounder one describes the best causal relation. Because, controlling for confounder will block the non-causal path which is Unemployment <- East/West -> Left vote share.
+
+In the second DAG it shows that East/West is a mediator and a mediator should not be included because controlling a mediator will block the indirect causal effect.
+As the unemployment rate can not effect the origin of a state district. 
+
+In the third DAG it shows that East/West is a collider and a collider shouldn't be included as well because controlling for a collider will open the non-causal path i.e Unemployment -> East/West <- Left vote share.
+
+
+**2.3 Run a linear regression to calculate the total effect of unemployment on the left vote share based on your chosen DAG.**
+
+```{r Exercise 2_3 with east/west}
+# Our group choose that the east/west separation is a confounder.
+
+lm_with_confounder <- lm(leftvote ~ unemployment + east, data = election2013_2)
+summary(lm_with_confounder)
+```
+
+```{r Exercise 2_3 without east/west}
+lm_without_confounder <- lm(leftvote ~ unemployment, data = election2013_2)
+summary(lm_without_confounder)
+```
+
+```{r}
+col_vec <- viridis(2, alpha = 0.5)
+
+plot(election2013_2$unemployment,
+     election2013_2$leftvote,
+     xlab = "Unemployment (in %)",
+     ylab = "Left Vote Share (in %)",
+     pch = 19,
+     bty = "n")
+
+legend("topleft",
+  col = col_vec,
+  pch = 19,
+  legend = "",
+  bty = "n")
+
+abline(
+  a = (coef(lm_without_confounder)[1]),
+  b = (coef(lm_without_confounder)[2]),
+  col = magma(1, alpha = 0.75),
+  lwd = 2
+)
+
+```
+
+
+**2.4 Present your results in a nice plot and interpret them in one or two sentences.**
+
+```{r Exercise 2_4}
+unemployment_jitter <- jitter(election2013_2$unemployment) 
+
+col_vec <- viridis(2, alpha = 0.5)
+east_col <- ifelse(election2013_2$east == 1, 
+                     col_vec[1],
+                     ifelse(election2013_2$east == 0, 
+                            col_vec[2], NA))
+plot(unemployment_jitter,
+     election2013_2$leftvote,
+     xlab = "Unemployment",
+     ylab = "Left Vote Share",
+     col = east_col,
+     pch = 19,
+     xlim = c(0, 15),
+     ylim = c(0, 35),
+
+     bty = "n")
+
+legend("topleft",
+  col = col_vec,
+  pch = 19,
+  legend = c("East germany","West germany"),
+  bty = "n")
+
+abline(
+  a = (coef(lm_with_confounder)[1]),
+  b = (coef(lm_with_confounder)[2]),
+  col = col_vec[2],
+  lwd = 3
+)
+# for the other category, females
+abline(
+  a = (coef(lm_with_confounder)[1] + coef(lm_with_confounder)[3]),
+  b = (coef(lm_with_confounder)[2]),
+  col = col_vec[1],
+  lwd = 3
+)
+
+
+
+
+```
+
+Answer: 
+
+In this last graph we can see that the left vote share is way higher in the east German countries. We see an average increase of about 14.78 per unit increase. 
+With a higher unemployment rate in the district the left vote share rises. 
+The slope is around 0.52. On average one unit increase of unemployment is associated with an increase of 0.52 units increase of the left vote share. 
+
+
+## Part 3: Understanding Colliders
+
+*In this part we want to understand why colliders can bias our estimates. Remember from the lecture and the lab that controlling for a collider opens non-causal paths between X and Y (which means that we can observe an artificial association between two unrelated variables). To examine this you are given the `rain_data` data. In this data set you have three variables:*
+
+- *`sprinkler` (a dummy variable, 1 indicating that the sprinkler was turned on)*
+- *`rain` (a dummy variable, 1 indicating that it rained)*
+- *`wet` (a dummy variable, 1 indicates that either the sprinkler and/or rain made the street wet).*
+
+*The relationships between the variables can be summarized by the following DAG:*
+
+![Collider Example](images/sprinkler_rain_dag.png){width="250px"}
+
+**3.1 Inspect at what time of the day and weather conditions the sprinkler is turned on. The DAG shows no causal relation between 'Sprinkler' and 'Rain': do you agree with that?**
+
+```{r  Exercise 3_1}
+#Load the data
+load("raw-data/rain_data.Rdata")
+head(rain_dta, 20)
+```
+
+```{r}
+head(rain_dta[rain_dta$sprinkler == 1,], 20)
+```
+
+
+Answer:The sprinkler is turned on every morning irrespective of the rain. 
+Thus, I agree that there is no causal relation between 'Sprinkler' & 'Rain'.
+
+
+**3.2 Verify that we cannot influence the weather. Run a linear regression model [^1] with `rain` as the dependent variable and `sprinkler` as the independent variable. Interpret your results in one sentence.**
+
+[^1]: Note that we will learn more appropriate models for binary dependent variables later in this semester. For this exercise, to understand colliders, a linear probability model is totally fine.
+
+```{r Exercise 3_2}
+lm_god <- lm(rain ~ sprinkler, data = rain_dta)
+summary(lm_god)
+```
+
+Answer:
+On average, a one-unit change in sprinkler leads to -0.03 unit change in the rain. Which is a very small and negligible value. Thus, sprinkler doesn't influence the weather. 
+
+**3.3 Now observe what happens if you control for the collider `wet`. Does this mean we can now influence the weather? Interpret your results in one or two sentences.**
+
+```{r Exercise 3_3}
+lm2 <- lm(rain ~ sprinkler + wet,
+          data = rain_dta)
+summary(lm2)
+```
+```{r}
+lm2 <- lm( rain ~ sprinkler,
+          data = rain_dta)
+summary(lm2)
+```
+
+
+Answer:
+
+Now as we control the wather we can clearly see that sprinkler influences the rain as on average a unit increase in raining intensity leads to an sprinkler increase of -0.03. This is marginal
+
+In this case by controlling for the collidor it opens up a non-causal-path between X and Y. This example makes it clear that we can not control the weather. 
+
+
+**3.4 To even better understand what's going on, produce two plots. For the first plot create a scatterplot with the 'Sprinkler' variable and the 'Rain' variable.  For the second plot, reproduce the first plot but color the dots differently for when the street is wet and when the street is not wet (and add a legend). Describe what you can observe in one or two sentences.**
+
+- *Hint: Add some jitter (on both axes) and work with color transparency to make the different points visible.*
+
+```{r Exercise 3_4}
+sprinkler_jitter <- jitter(rain_dta$sprinkler) 
+
+plot(sprinkler_jitter,
+     rain_dta$rain,
+     xlab = "Sprinkler",
+     ylab = "Rain",
+     col = viridis(1, alpha = 0.5),
+     pch = 19,
+     xaxt = "n",
+     bty = "n")
+
+axis(1,
+     at = 0:1,
+     labels = c("Sprinkler was off",
+                "Sprinkler was on"),
+     tick = F)
+col_vec <- viridis(2, alpha = 0.5)
+
+wet_col <- ifelse(rain_dta$wet == 1, 
+                     col_vec[1],
+                     ifelse(rain_dta$wet == 0, 
+                            col_vec[2], NA))
+plot(sprinkler_jitter,
+     rain_dta$rain,
+     xlab = "Sprinkler",
+     ylab = "Rain",
+     col = wet_col,
+     pch = 19,
+     xaxt = "n",
+     bty = "n")
+legend("right",
+       col = col_vec,
+       pch = 19,
+       legend = c("The street is wet",
+                  "The street is not wet"),
+       bty = "n")
+axis(1,
+     at = 0:1,
+     labels = c("Sprinkler was off",
+                "Sprinkler was on"),
+     tick = F)
+
+```
+
+Answer: We can observe that there is no effect of sprinkler on rain(weather). The graph clearly depicts that sprinkler and the weather are independent of each other.
+
+
+## Part 4: Campaign Money and Votes: How to Make a DAG
+
+In this part, you see how we can make DAGs in R with the help of [daggity.net](http://www.dagitty.net/dags.html#) and `daggity` package. [daggity.net](http://www.dagitty.net/dags.html#) is a website that allows you to create your DAGs by specifying the nodes and the relationships between them. It is a very nice place to start, because `daggity.com` will help you in identifying the paths and what to include in the systematic component of a regression. The `daggity` package allows to translate your DAG into R. We have created a DAG on the website, and the imported code from it, which you can find in the chunk below. [^2]
+
+You will be working with a DAG about campaign finance in the US. We are interested in the effect of *Money raised*, so how much a candidate was able to get as donations during a campaign, on *Total votes*, the vote share the candidate got in the elections. There are also a few more variables in the DAG:
+
+- *Candidate quality*, which captures the personal characteristics of candidate like the experience and competence 
+- *Party*, which indicates if a candidate belongs to Democrats or Republicans
+- *Hire campaign manager*, telling if the candidate was able to get one 
+- *Won election*, which is self-explanatory
+- *History*, some unobserved (i.e., we cannot measure it) factors that determine candidate's partisanship.
+
+
+```{r DAG code}
+campaign_dag <- dagitty(
+'dag {
+bb="0,0,1,1"
+"Candidate quality" [pos="0.295,0.245"]
+"Hire campaign manager" [pos="0.630,0.681"]
+"Money raised" [exposure,pos="0.202,0.516"]
+"Total votes" [outcome,pos="0.702,0.501"]
+"Won election" [pos="0.360,0.685"]
+"History" [latent,pos="0.670,0.083"]
+"Party" [pos="0.598,0.245"]
+"Candidate quality" -> "Money raised"
+"Candidate quality" -> "Total votes"
+"Hire campaign manager" -> "Total votes"
+"Money raised" -> "Hire campaign manager"
+"Money raised" -> "Total votes"
+"Money raised" -> "Won election"
+"Total votes" -> "Won election"
+"History" -> "Party"
+"Party" -> "Money raised"
+"Party" -> "Total votes"
+}
+')
+
+plot(campaign_dag)
+```
+
+```{r dagitty}
+# this is how you can look at the paths
+paths(campaign_dag)
+
+# this shows the variables you must include as controls given your DAG
+adjustmentSets(campaign_dag)
+```
+
+**4.1 Based on the DAG above, briefly explain the relationships hypothesized by researchers. Which variables would you not include as controls and why? Do you agree with the recommendation from `adjustmentSets`?**
+
+Answer: According to the paths the relationships are as follows:
+1. False, Hire campaign manager is a *mediator* here and as controlling for a mediator blocks the direct causal effect we try to not include hire campaign manager as a control
+2. True, Money raised is a direct relationship with total votes. (*independent variable on depended variable*) We can not remove either of them.
+3. False, Won election is a collider, hence we try to not include it s controlling for a *collider* opens a non-causal path.
+4. True, Candidate quality is a *confounder* here which can be included as controlling for a confounder blocks the non-causal path.
+5. True, party is a *confounder* here which can be included as controlling for a confounder blocks the non-causal path.
+
+Thus, I agree with all the adjustmentSets expect the first one. 
+
+**4.2 Now suppose that the campaign money were not raised by the candidate in a fair fight, but rather were simply given to half of the candidates, randomly selected, and the second half were not given the money. In other words, instead of working with observational data, you are in an experimental setup. Adjust the DAG to show the relationships correctly, given the experimental setup. Briefly explain on your decisions.**
+
+- *You can add/remove relationships between the nodes by adding/removing the parts of the code with arrows inside model code in the chunk below.*
+
+```{r Exercise 4_2}
+campaign_dag2 <- dagitty(
+'dag {
+bb="0,0,1,1"
+"Candidate quality" [pos="0.4,0.245"]
+"Hire campaign manager" [pos="0.630,0.681"]
+"Budget for campaign" [exposure,pos="0.202,0.516"]
+"Total votes" [outcome,pos="0.702,0.501"]
+"Won election" [pos="0.360,0.685"]
+"History" [latent,pos="0.670,0.083"]
+"Party" [pos="0.598,0.245"]
+"give money to random candidates (yes 50%|no 50%)" [pos="0.3,0.1"]
+"give money to random candidates (yes 50%|no 50%)" -> "Budget for campaign"
+"give money to random candidates (yes 50%|no 50%)" -> "Total votes"
+"Budget for campaign" -> "Candidate quality"
+"Candidate quality" -> "Total votes"
+"Hire campaign manager" -> "Total votes"
+"Budget for campaign" -> "Hire campaign manager"
+"Budget for campaign" -> "Total votes"
+"Budget for campaign" -> "Won election"
+"Total votes" -> "Won election"
+"History" -> "Party"
+"Party" -> "Budget for campaign"
+"Party" -> "Total votes"
+}
+
+')
+
+plot(campaign_dag2)
+```
+
+Answer:
+
+We changed to money raised to general budgeting, because in this case the money is not just depended on the quality of the candidate but also from the money given to them.
+This money giving process in random given to the 50% of the candidates (binomial).
+Furthermore this money giving process might influence the total votes (bravery).
+The candidate quality changed from being a collider to a mediator, because now the quality of his campaign is affected by the budget of it.
+
+[^2]: You can find out more about how to make a DAG on the website [here](https://www.youtube.com/watch?v=tZe3ZNYCrDQ).
+
+
+
+\newpage
+
+## R code
+
+<!-- The chunk below will print out the code from all the chunks in the document, even if you chose to hide chunks in the main text with `echo=FALSE` chunk option or `include=FALSE` option. You do not need to put any code in this chunk manually: it will gather code from other chunks automatically. -->
+
+```{r ref.label=knitr::all_labels(), echo=TRUE, eval=FALSE}
+```
+

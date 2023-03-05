@@ -1,0 +1,1610 @@
+---
+title: "QM 2021 Week 8: OLS: Diagnostics"
+author:
+  - "Oliver Rittmann"
+  - "Viktoriia Semenova"
+  - "David Grundmanns"
+date: "November 4 | 8 | 9, 2021"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    css: css/lab.css
+  pdf_document:
+    toc: yes
+---
+
+
+------------------------------------------------------------------------
+
+  
+# Today we will learn: {.unnumbered}
+
+1.   Omitted Variable Bias (once more)
+2.   Measurement Error
+3.   Multicollinearity
+4.   Heteroscedasticity
+5.   Outliers/Influential Observations
+
+In other words, the goals are to:
+
+- use Monte Carlo simulations to understand different biases
+- see how we can use simulations for sensitivity analyses/robustness checks
+- detect outliers
+
+---
+
+```{r setup, message=FALSE, warning=FALSE}
+# The first line sets an option for the final document that can be produced from
+# the .Rmd file. Don't worry about it.
+knitr::opts_chunk$set(echo = TRUE,
+                      out.width="\\textwidth", # for larger figures 
+                      attr.output = 'style="max-height: 200px;"'
+                      )
+
+# The next bit is quite powerful and useful. 
+# First you define which packages you need for your analysis and assign it to 
+# the p_needed object. 
+p_needed <-
+  c("viridis", "MASS", "sandwich", "lmtest", 
+    "ggplot2", "patchwork", "dplyr")
+
+# Now you check which packages are already installed on your computer.
+# The function installed.packages() returns a vector with all the installed 
+# packages.
+packages <- rownames(installed.packages())
+# Then you check which of the packages you need are not installed on your 
+# computer yet. Essentially you compare the vector p_needed with the vector
+# packages. The result of this comparison is assigned to p_to_install.
+p_to_install <- p_needed[!(p_needed %in% packages)]
+# If at least one element is in p_to_install you then install those missing
+# packages.
+if (length(p_to_install) > 0) {
+  install.packages(p_to_install)
+}
+# Now that all packages are installed on the computer, you can load them for
+# this project. Additionally the expression returns whether the packages were
+# successfully loaded.
+sapply(p_needed, require, character.only = TRUE)
+
+# This is an option for stargazer tables
+# It automatically adapts the output to html or latex,
+# depending on whether we want a html or pdf file
+stargazer_opt <- ifelse(knitr::is_latex_output(), "latex", "html")
+
+# only relevant for ggplot2 plotting
+# setting a global ggplot theme for the entire document to avoid 
+# setting this individually for each plot 
+theme_set(theme_classic() + # start with classic theme 
+  theme(
+    plot.background = element_blank(),# remove all background 
+    plot.title.position = "plot", # move the plot title start slightly 
+    legend.position = "bottom", # by default, put legend on the bottom
+    axis.line.y = element_blank(), # remove line on y axis 
+    axis.ticks.y = element_blank(), # remove ticks on y axis
+    axis.text.y = element_blank() # remove text on y axis
+  ))
+
+```
+
+Today, we introduce a new name for something we already did many times: Monte Carlo Simulation.
+
+
+Steps for Monte Carlo Simulations:
+
+1. Generate fake data X.
+2. Choose true coefficients b.
+3. Generate true Y. ($Y \sim N(\mu, \sigma^2)$) 
+4. Sample from population.
+5. Run regressions (or whatever you can think of).
+6. Repeat n (e.g. 1,000) times, this generates a sampling distribution of coefficients.
+7. Compare to true values.
+
+To do this we need the `MASS` library (loaded in the setup chunk).
+
+
+# Omitted Variable Bias (once more)
+
+Let's start with an example you already know. What happens if we forget to include a variable in our model that is a confounder in the true data generating process?
+
+![Confounder](figures/confounder.png){250px}
+
+### 1. Generate fake data X. {-}
+
+We start with the means:
+
+```{r ovb-1-generate-mu}
+mus <- c(5, 10)
+mus
+```
+
+We also need standard deviations:
+
+```{r ovb-1-generate-sd}
+sds <- c(4, 5)
+sds_mat <- diag(sds) 
+sds_mat
+```
+
+Correlation matrix (we assume *some* multicollinearity). Why?
+
+```{r ovb-1-generate-cor-mat}
+cor_mat <- matrix(c(1, 0.3, 0.3, 1), nrow = 2, ncol = 2)
+cor_mat 
+```
+
+Convert to variance covariance matrix
+
+```{r ovb-1-convert-to-varcov, collapse=TRUE}
+varcov <- sds_mat %*% cor_mat %*% sds_mat 
+# step-by-step
+sds_mat %*% cor_mat
+sds_mat %*% cor_mat %*% sds_mat 
+#check sqrt of diag:
+sqrt(diag(varcov)) #our initial sds
+```
+
+Now we can generate X by taking draws from a multivariate normal. 
+
+```{r ovb-1-generate-x}
+X <- mvrnorm(n = 100000, 
+             mu = mus, 
+             Sigma = varcov)
+
+head(X)
+
+cor(X[, 1], X[, 2]) # check correlation (we specified it in cor_mat)
+```
+
+
+### 2. Choose true coefficients $b$. {-}
+
+```{r ovb-2}
+b <- c(10, 3, 5) 
+```
+
+
+### 3. Generate $Y \sim N(\mu, \sigma^2)$ {-}
+
+```{r ovb-3}
+mu <- cbind(1, X) %*% b  # systematic component
+
+# Choose sigma_est
+sigma_est <- 1
+
+# Generate Y
+Y <- rnorm(100000, 
+           mean = mu,       # systematic component
+           sd = sigma_est)  # stochastic component
+
+# Create population data
+
+pop <- data.frame(cbind(Y, X)) 
+head(pop)
+```
+
+We can put steps 1 to 3 in one function.
+
+```{r func-gen-pop}
+gen_pop <- function(mus, varcov, b, sigma_est){
+  
+  X <- mvrnorm(n = 100000, 
+               mu = mus, 
+               Sigma = varcov) 
+  
+  mu_y <- cbind(1, X) %*% b
+  
+  Y <- rnorm(100000, 
+             mean = mu_y, 
+             sd = sigma_est)
+  
+  population <- data.frame(cbind(Y, X))
+  
+  return(population)
+}
+
+# See if our function works
+
+pop <- gen_pop(mus = mus, 
+               varcov = varcov, 
+               b = b, 
+               sigma_est = sigma_est)
+
+head(pop)
+```
+
+Next, we need to:
+
+### 4. Sample from population {-}
+
+and... 
+
+### 5. Run regressions with and without omitting the variable. {-}
+
+We do that in one function:
+
+```{r ovb-4-5}
+drawncalc_ovb <- function(pop){
+  
+  pop_sample <- pop[sample(nrow(pop), size = 500), ] #dplyr::sample_n(pop, 500)
+  
+  # regression without omitted variable bias
+  reg_nobias <- lm(Y ~ V2 + V3, data = pop_sample)
+  
+  # regression with omitted variable bias
+  reg_bias <- lm(Y ~ V2, data = pop_sample)
+  
+  # store and return beta_1 estimate of both models
+  b1_hat <- c(summary(reg_nobias)$coefficients[2, 1],
+              summary(reg_bias)$coefficients[2, 1])
+  
+  return(b1_hat)
+  }
+```
+
+
+### 6. Repeat 1,000 times to generate the sampling distributions. {-}
+
+```{r ovb-6}
+b_hats_ovb <- t(replicate(1000, drawncalc_ovb(pop = pop)))
+
+head(b_hats_ovb) # 2 cols with 1000 regression coefficients
+```
+
+
+### 7. Compare to true values. {- .tabset}
+
+#### Base R {-}
+
+```{r ovb-7-base}
+
+two_cols <- viridis(2)
+two_cols_alpha <- viridis(2, 0.5)
+
+#We plot both the biased and unbiased estimates
+plot(density(b_hats_ovb[, 1]), 
+     xlim = c(2.5,6.5), 
+     main = "Omitted Variable Bias", 
+     col = two_cols[1],
+     bty = "n", 
+     las = 1,
+     ylab = "")
+
+polygon(density(b_hats_ovb[, 1]),
+        col = two_cols_alpha[1],
+        border = F)
+
+lines(density(b_hats_ovb[, 2]), 
+      col = two_cols[2])
+polygon(density(b_hats_ovb[, 2]),
+        col = two_cols_alpha[2],
+        border = F)
+
+abline(v = c(mean(b_hats_ovb[, 1]), 
+             mean(b_hats_ovb[, 2])),
+       col = two_cols, 
+       lty = 2)
+```
+
+> Omitted variable bias can dramatically bias our estimates of interest.
+
+#### ggplot2 {-}
+
+```{r ovb-7-ggplot2}
+# put data to long format (better practice in ggplot2)
+# instead of 2 columns, make one with another column identifying the model
+b_hats_plot <- data.frame(
+  estimate = c(b_hats_ovb[, 1], b_hats_ovb[, 2]),
+  Model = rep(c("Unbiased", "Biased"), each = nrow(b_hats_ovb))
+)
+
+
+ggplot(b_hats_plot, 
+  aes(x = estimate, fill = Model, color = Model)
+) +
+  geom_density() + # add two density plots 
+  scale_color_viridis(discrete = T, direction = -1) + # change colors with viridis palette
+  scale_fill_viridis(discrete = T, alpha = 0.5, direction = -1) + #  fill with viridis
+  labs(
+    title = "Omitted Variable Bias",
+    x = "",
+    y = "",
+    fill = "Model"
+  ) +
+  geom_vline(
+    xintercept = apply(b_hats_ovb, 2, mean), # object with two columns
+    color = viridis(2) 
+    ) +
+  geom_hline( # remove the bottom line for cleaner look 
+    yintercept = 0,
+    color = "white" # grid line color
+    ) 
+```
+
+> Omitted variable bias can dramatically bias our estimates of interest.
+
+# Measurement Error
+
+### 1. Generate fake data $X$. {-}
+
+
+We start with the means
+
+```{r me-1-generate-mu}
+mus <- c(5, 10)
+```
+
+We also need standard deviations
+
+```{r me-1-generate-sd}
+sds <- c(4, 5)
+sds_mat <- diag(sds) # construct a diagonal matrix
+sds_mat
+```
+
+Correlation matrix (for now we assume *no* multicollinearity).
+
+```{r me-1-generate-cor-mat}
+cor_mat <- matrix(data = c(1, 0, 0, 1), nrow = 2, ncol = 2)
+cor_mat
+```
+
+Convert to variance-covariance matrix:
+
+```{r me-1-varcov}
+varcov <- sds_mat %*% cor_mat %*% sds_mat 
+varcov
+```
+
+Now we can generate X
+
+```{r me-1-genX}
+X <- mvrnorm(n = 100000, 
+             mu = mus, 
+             Sigma = varcov)
+cor(X[, 1], X[, 2]) # check correlation
+```
+
+### 2. Choose true coefficients $b$ {-}
+
+```{r me-2}
+b <- c(10, 3, 5)
+```
+
+### 3. Generate $Y$ ~ $N(\mu,\sigma^2)$ {-}
+
+```{r me-3-generate-Y}
+mu <- cbind(1, X) %*% b  # systematic component
+
+# Choose sigma_est
+sigma_est <- 1
+
+# Generate Y
+Y <- rnorm(100000, 
+           mean = mu,        # systematic component
+           sd = sigma_est)   # stochastic component
+
+```
+
+Now we need to add some measurement error in X (e.g., in V2)
+
+```{r me-3-add-error}
+sigma_err <- 0.5
+
+X[, 1] <- X[, 1] + rnorm(length(X[, 1]), 0, sigma_err) # X-star from the lecture
+
+# Population data
+
+pop <- data.frame(cbind(Y, X)) 
+head(pop)
+```
+
+We can modify our `gen_pop` function accordingly.
+
+
+```{r edit-func-gen-pop}
+gen_pop <- function(mus, varcov, b, sigma_est, sigma_err){
+  
+  X <- mvrnorm(n = 100000, mu = mus, Sigma = varcov) 
+  
+  mu_y <- cbind(1, X) %*% b
+  
+  Y <- rnorm(100000, 
+             mu_y, 
+             sigma_est)
+  
+  # Add measurement error in V2
+  X[, 1] <- X[, 1] + rnorm(length(X[, 1]), 0, sigma_err) 
+  
+  population <- data.frame(cbind(Y, X))
+  
+  return(population)
+}
+```
+
+Perfect, let's set up some scenarios using our function.
+
+
+### a) No measurement error {-}
+
+```{r me-no}
+pop1 <- gen_pop(mus = mus, 
+                varcov = varcov, 
+                b = b,
+                sigma_est = sigma_est, 
+                sigma_err = 0)
+```
+
+### b) Small measurement error {-}
+
+```{r me-sm}
+pop2 <- gen_pop(mus = mus, 
+                varcov = varcov, 
+                b = b,
+                sigma_est = sigma_est, 
+                sigma_err = 0.25)
+```
+
+### c) High measurement error {-}
+
+```{r me-md}
+pop3 <- gen_pop(mus = mus, 
+                varcov = varcov, 
+                b = b,
+                sigma_est = sigma_est, 
+                sigma_err = 0.5)
+```
+
+### d) Very high measurement error {-}
+
+```{r me-lg}
+pop4 <- gen_pop(mus = mus, 
+                varcov = varcov, 
+                b = b,
+                sigma_est = sigma_est, 
+                sigma_err = 1)
+```
+
+Next, we need to:
+
+### 4. Sample from population {-}
+
+and ...
+
+### 5. Run regressions with the different measurement error scenarios. {-}
+
+We do that in one function:
+
+```{r me-4-5-func-drawncalc}
+drawncalc <- function(pop){
+  
+  pop_sample <- pop[sample(nrow(pop), size = 500),]
+  
+  reg <- lm(Y ~ V2 + V3,
+            data = pop_sample)
+  
+  # get coefficient and standard error
+  b1_hat <- summary(reg)$coefficients[2, 1:2] 
+  
+  return(b1_hat)
+}
+```
+
+
+### 6. Repeat 1,000 times to generate the sampling distributions.
+
+We do this for the different scenarios.
+
+```{r me-6}
+# without measurement error
+b_hats_no <- t(replicate(1000, drawncalc(pop = pop1)))
+
+# with small measurement error
+b_hats_small <- t(replicate(1000, drawncalc(pop = pop2)))
+
+# with high measurement error 
+b_hats_high <- t(replicate(1000, drawncalc(pop = pop3)))
+
+# with very high measurement error
+b_hats_veryhigh <- t(replicate(1000, drawncalc(pop = pop4)))
+```
+
+### 7. Compare to true values. {- .tabset}
+
+Plots help us here.
+
+#### Base R {-}
+
+```{r me-7-base-1}
+four_cols <- viridis(4)
+four_cols_alpha <- viridis(4, 0.5)
+
+par(mfrow = c(1, 2))
+
+# first plot
+
+plot(density(b_hats_no[, 1]), 
+     xlim = c(2.7, 3.05), 
+     main = "Point Estimate",
+     bty = "n", 
+     las = 1, 
+     yaxt = "n", 
+     ylab = "",
+     xlab = "",
+     type = "n")
+
+polygon(density(b_hats_no[, 1]),
+        col = four_cols_alpha[1],
+        border = F)
+polygon(density(b_hats_small[, 1]),
+        col = four_cols_alpha[2],
+        border = F)
+polygon(density(b_hats_high[, 1]),
+        col = four_cols_alpha[3],
+        border = F)
+polygon(density(b_hats_veryhigh[, 1]),
+        col = four_cols_alpha[4],
+        border = F)
+
+lines(density(b_hats_no[, 1]), 
+      col = four_cols[1])
+lines(density(b_hats_small[, 1]), 
+      col = four_cols[2])
+lines(density(b_hats_high[, 1]), 
+      col = four_cols[3])
+lines(density(b_hats_veryhigh[, 1]), 
+      col = four_cols[4])
+
+abline(v = c(mean(b_hats_no[, 1]), 
+             mean(b_hats_small[, 1]),
+             mean(b_hats_high[, 1]), 
+             mean(b_hats_veryhigh[, 1])),
+       col = four_cols, lty = 2)
+
+legend("topleft", 
+       legend = c("No", "Small", "High", "Very high"),
+       col = four_cols, 
+       lty = "dashed", 
+       cex = 0.7,
+       bty = "n")
+
+# second plot 
+
+plot(density(b_hats_no[, 2]), 
+     xlim = c(0.009, 0.04), 
+     main = "Standard Error",
+     bty = "n", 
+     las = 1, 
+     yaxt = "n", 
+     ylab = "",
+     xlab = "",
+     type = "n")
+
+polygon(density(b_hats_no[, 2]),
+        col = four_cols_alpha[1],
+        border = F)
+polygon(density(b_hats_small[, 2]),
+        col = four_cols_alpha[2],
+        border = F)
+polygon(density(b_hats_high[, 2]),
+        col = four_cols_alpha[3],
+        border = F)
+polygon(density(b_hats_veryhigh[, 2]),
+        col = four_cols_alpha[4],
+        border = F)
+
+lines(density(b_hats_no[, 2]), 
+      col = four_cols[1])
+lines(density(b_hats_small[, 2]), 
+      col = four_cols[2])
+lines(density(b_hats_high[, 2]), 
+      col = four_cols[3])
+lines(density(b_hats_veryhigh[, 2]), 
+      col = four_cols[4])
+
+abline(v = c(mean(b_hats_no[, 2]), 
+             mean(b_hats_small[, 2]),
+             mean(b_hats_high[, 2]), 
+             mean(b_hats_veryhigh[, 2])),
+       col = four_cols, 
+       lty = 2)
+```
+
+How is the relationship between measurement error in V2 and the point estimate and standard error?
+
+```{r me-7-base-2}
+plot(x = c(0, 0.25, 0.5, 1), 
+     y = c(mean(b_hats_no[, 1]), 
+           mean(b_hats_small[, 1]),
+           mean(b_hats_high[, 1]), 
+           mean(b_hats_veryhigh[, 1])),
+     pch = 19,
+     col = viridis(1, 0.8),
+     main = "Measurement Error and Point Estimate", 
+     xlab = "Measurement Error", 
+     ylab = "Point Estimate", 
+     bty = "n", 
+     las = 1)
+
+plot(x = c(0, 0.25, 0.5, 1), 
+     y = c(mean(b_hats_no[, 2]), 
+           mean(b_hats_small[, 2]),
+           mean(b_hats_high[, 2]), 
+           mean(b_hats_veryhigh[, 2])),
+     pch = 19,
+     col = viridis(1, 0.8),
+     main = "Measurement Error and Standard Error", 
+     xlab = "Measurement Error", 
+     ylab = "Standard Error",
+     bty = "n", 
+     las = 1)
+```
+
+> This **attenuation bias**, which is introduced through measurement error in X, biases our cofficients towards zero.
+
+
+**In the exercise section, you will see how measurement error in Y affects our coefficients.**
+
+
+#### ggplot2 {-}
+
+```{r me-7-ggplot2-1}
+
+b_hats <- as.data.frame(rbind(b_hats_no,
+                              b_hats_small,
+                              b_hats_high,
+                              b_hats_veryhigh))
+b_hats$error <-
+  factor(rep(c("No", "Small", "High", "Very High"), each = nrow(b_hats) / 4), 
+         levels = c("No", "Small", "High", "Very High"))
+
+
+# first plot
+p1 <- ggplot(data = b_hats, aes(x = Estimate,  fill = error, color = error)) +
+  labs(
+    title = "Point Estimate",
+    x = "",
+    y = "",
+    fill = "Measurement Error",
+    color = "Measurement Error"
+  ) +
+  geom_density() + # add densities 
+  geom_vline( # manually add lines with means 
+    xintercept = b_hats %>% # take b_hats 
+      group_by(error) %>% # apply all calculations within groups of error
+      summarise(mean = mean(Estimate)) %>% #  take mean of Estimate column 
+      pull(mean), # pull the mean column 
+    linetype = "dashed",
+    color = viridis(4)
+  ) +
+  scale_fill_viridis(discrete = T, alpha = 0.5) +
+  scale_color_viridis(discrete = T) 
+
+# second plot 
+
+p2 <- ggplot(data = b_hats, aes(x = `Std. Error`, fill = error, color= error)) +
+  labs(
+    title = "Standard Error",
+    x = "",
+    y = "",
+    fill = "Measurement Error",
+    color = "Measurement Error"
+  ) +
+  geom_density() +
+  geom_vline( # manually add lines with means 
+    xintercept = b_hats %>% # take b_hats 
+      group_by(error) %>% # apply all calculations within groups of error
+      summarise(mean = mean(`Std. Error`)) %>% #  take mean of `Std. Error` column 
+      pull(mean), # pull the mean column 
+    linetype = "dashed",
+    color = viridis(4)
+  ) +
+  scale_fill_viridis(discrete = T, alpha = 0.5) +
+  scale_color_viridis(discrete = T)
+
+# put plots together with patchwork package 
+p1 + p2 + plot_layout(guides = "collect") &
+  geom_hline( # remove the bottom line for cleaner look 
+    yintercept = 0,
+    color = "white" # grid line color
+    )
+```
+
+How is the relationship between measurement error in V2 and the point estimate and standard error?
+
+```{r me-7-ggplot2}
+p1 <- b_hats %>% # take b_hats 
+      group_by(error) %>% # apply all calculations within groups of error
+      summarise_all(mean) %>% # summarize all variables
+  ggplot() + 
+  geom_point(
+    aes(x = c(0, 0.25, 0.5, 1),
+        y = Estimate)
+  ) + 
+  labs(
+    x = "Measurement Error",
+    y = "Point Estimate"
+  ) +
+  theme_classic() # restore to classic theme with no modifications 
+
+p2 <- b_hats %>% # take b_hats 
+      group_by(error) %>% # apply all calculations within groups of error
+      summarise_all(mean) %>% 
+  ggplot() + 
+  geom_point(
+    aes(x = c(0, 0.25, 0.5, 1),
+        y = `Std. Error`)
+  ) + 
+  labs(
+    x = "Measurement Error",
+    y = "Standard Error"
+  ) +
+  theme_classic()
+
+p1 + p2 + plot_annotation(title = "The Effect of Measurement Error in X on Estimates")
+```
+
+> This **attenuation bias**, which is introduced through measurement error in X, biases our cofficients towards zero.
+
+
+**In the exercise section, you will see how measurement error in Y affects our coefficients.**
+
+
+# Multicollinearity
+
+Steps 1 to 3:
+Again, we only need to modify our `gen_pop` function from above.
+What changes?
+
+```{r mc-1-3}
+gen_pop <- function(mus, varcov, b, sigma_est){
+  
+  # Generate IV
+  X <- mvrnorm(n = 100000, 
+               mu = mus, 
+               Sigma = varcov) 
+  
+  mu_y <- cbind(1, X) %*% b
+  
+  Y <- rnorm(100000, 
+             mean = mu_y, 
+             sd = sigma_est)
+  
+  population <- data.frame(cbind(Y, X))
+  
+  return(population)
+}
+```
+
+Let's set up some scenarios: 
+
+```{r mc-scenarios}
+# a) No multicollinearity
+
+cor_mat1 <- matrix(c(1, 0, 0, 1), 
+                   nrow = 2, 
+                   ncol = 2)
+
+varcov1 <- sds_mat %*% cor_mat1 %*% sds_mat 
+
+pop1 <- gen_pop(mus = mus, 
+                varcov = varcov1, 
+                b = b, 
+                sigma_est = sigma_est)
+
+# b) Small multicollinearity
+
+cor_mat2 <- matrix(c(1, 0.3, 0.3, 1), 
+                   nrow = 2, 
+                   ncol = 2)
+
+varcov2 <- sds_mat %*% cor_mat2 %*% sds_mat 
+
+pop2 <- gen_pop(mus = mus, 
+                varcov = varcov2, 
+                b = b, 
+                sigma_est = sigma_est)
+
+# c) High multicollinearity
+
+cor_mat3 <- matrix(c(1, 0.6, 0.6, 1), nrow = 2, ncol = 2)
+
+varcov3 <- sds_mat %*% cor_mat3 %*% sds_mat 
+
+pop3 <- gen_pop(mus = mus, 
+                varcov = varcov3, 
+                b = b, 
+                sigma_est = sigma_est)
+
+# d) Very high multicollinearity
+
+cor_mat4 <- matrix(c(1, 0.9, 0.9, 1), 
+                   nrow = 2, 
+                   ncol = 2)
+
+varcov4 <- sds_mat %*% cor_mat4 %*% sds_mat 
+
+pop4 <- gen_pop(mus = mus, 
+                varcov = varcov4, 
+                b = b, 
+                sigma_est = sigma_est)
+```
+
+Steps 4 to 6 are the same as above. (And we can use the same function.)
+
+```{r mc-4-6}
+b_hats_no <- t(replicate(1000, drawncalc(pop = pop1)))
+
+b_hats_small <- t(replicate(1000, drawncalc(pop = pop2)))
+
+b_hats_high <- t(replicate(1000, drawncalc(pop = pop3)))
+
+b_hats_veryhigh <- t(replicate(1000, drawncalc(pop = pop4)))
+```
+
+### 7. To compare to the true values we make some plots {- .tabset}
+
+#### Base R {-}
+
+```{r mc-7-1-base}
+par(mfrow = c(1, 2))
+
+# first plot
+
+plot(density(b_hats_no[, 1]), 
+     xlim = c(2.9, 3.1), 
+     main = "Point Estimate",
+     bty = "n", 
+     las = 1, 
+     yaxt = "n", 
+     ylab = "",
+     xlab = "",
+     type = "n")
+
+polygon(density(b_hats_no[, 1]),
+        col = four_cols_alpha[1],
+        border = F)
+polygon(density(b_hats_small[, 1]),
+        col = four_cols_alpha[2],
+        border = F)
+polygon(density(b_hats_high[, 1]),
+        col = four_cols_alpha[3],
+        border = F)
+polygon(density(b_hats_veryhigh[, 1]),
+        col = four_cols_alpha[4],
+        border = F)
+
+lines(density(b_hats_no[, 1]), 
+      col = four_cols[1])
+lines(density(b_hats_small[, 1]), 
+      col = four_cols[2])
+lines(density(b_hats_high[, 1]), 
+      col = four_cols[3])
+lines(density(b_hats_veryhigh[, 1]), 
+      col = four_cols[4])
+
+abline(v = c(mean(b_hats_no[, 1]), 
+             mean(b_hats_small[, 1]),
+             mean(b_hats_high[, 1]), 
+             mean(b_hats_veryhigh[, 1])),
+       col = four_cols, lty = 2)
+
+legend("topleft", 
+       legend = c("No", "Small", "High", "Very high"),
+       col = four_cols, 
+       lty = "dashed", 
+       cex = 0.7,
+       bty = "n")
+
+# second plot 
+
+plot(density(b_hats_no[, 2]), 
+     xlim = c(0.009, 0.031), 
+     main = "Standard Error",
+     bty = "n", 
+     las = 1, 
+     yaxt = "n", 
+     ylab = "",
+     xlab = "",
+     type = "n")
+
+polygon(density(b_hats_no[, 2]),
+        col = four_cols_alpha[1],
+        border = F)
+polygon(density(b_hats_small[, 2]),
+        col = four_cols_alpha[2],
+        border = F)
+polygon(density(b_hats_high[, 2]),
+        col = four_cols_alpha[3],
+        border = F)
+polygon(density(b_hats_veryhigh[, 2]),
+        col = four_cols_alpha[4],
+        border = F)
+
+lines(density(b_hats_no[, 2]), 
+      col = four_cols[1])
+lines(density(b_hats_small[, 2]), 
+      col = four_cols[2])
+lines(density(b_hats_high[, 2]), 
+      col = four_cols[3])
+lines(density(b_hats_veryhigh[, 2]), 
+      col = four_cols[4])
+
+abline(v = c(mean(b_hats_no[, 2]), 
+             mean(b_hats_small[, 2]),
+             mean(b_hats_high[, 2]), 
+             mean(b_hats_veryhigh[, 2])),
+       col = four_cols, 
+       lty = 2)
+```
+
+How is the relationship between multicollinearity and standard error?
+
+```{r mc-7-2-base}
+plot(x = c(0, 0.3, 0.6, 0.9), 
+     y = c(mean(b_hats_no[, 2]),
+           mean(b_hats_small[, 2]),
+           mean(b_hats_high[, 2]), 
+           mean(b_hats_veryhigh[, 2])),
+     pch = 19,
+     las = 1, 
+     col = viridis(1, 0.75),
+     main = "Multicollinearity and Standard Error", 
+     xlab = "Correlation", 
+     ylab = "Standard Error",
+     bty = "n")
+```
+
+> Multicollinearity increases the sampling variance of the OLS coefficients. This in turn increases the SEs and CIs of the coefficients. The good news is that even strong multicollinearity does not bias our coefficients. 
+
+
+#### ggplot2 {-}
+
+```{r mc-7-1-ggplot}
+
+b_hats <- as.data.frame(rbind(b_hats_no,
+                              b_hats_small,
+                              b_hats_high,
+                              b_hats_veryhigh))
+b_hats$mc <- factor(rep(c("No", "Small", "High", "Very High"), each = nrow(b_hats) / 4),
+                    levels =  c("No", "Small", "High", "Very High"))
+
+
+# first plot
+
+p1 <- ggplot(data = b_hats, aes(x = Estimate,  fill = mc, color = mc)) +
+  labs(
+    title = "Point Estimate",
+    x = "",
+    y = "",
+    fill = "Multicollinearity",
+    color = "Multicollinearity"
+  ) +
+  geom_density() + # add densities 
+  geom_vline( # manually add lines with means 
+    xintercept = b_hats %>% # take b_hats 
+      group_by(mc) %>% # apply all calculations within groups of mc
+      summarise(mean = mean(Estimate)) %>% #  take mean of Estimate column 
+      pull(mean), # pull the mean column 
+    linetype = "dashed",
+    color = viridis(4)
+  ) +
+  scale_fill_viridis(discrete = T, alpha = 0.5) +
+  scale_color_viridis(discrete = T)
+
+p2 <- ggplot(data = b_hats, aes(x = `Std. Error`, fill = mc, color = mc)) +
+  labs(
+    title = "Standard Error",
+    x = "",
+    y = "",
+    fill = "Multicollinearity",
+    color = "Multicollinearity"
+  ) +
+   geom_density() + # add densities 
+  geom_vline( # manually add lines with means 
+    xintercept = b_hats %>% # take b_hats 
+      group_by(mc) %>% # apply all calculations within groups of mc
+      summarise(mean = mean(`Std. Error`)) %>% #  take mean of `Std. Error` column 
+      pull(mean), # pull the mean column 
+    linetype = "dashed",
+    color = viridis(4)
+  ) +
+  scale_fill_viridis(discrete = T, alpha = 0.5) +
+  scale_color_viridis(discrete = T) 
+
+p1 + p2 + plot_layout(guides = "collect") &
+  geom_hline( # remove the bottom line for cleaner look 
+    yintercept = 0,
+    color = "white" # grid line color
+    )
+```
+
+How is the relationship between multicollinearity and standard error?
+
+```{r mc-7-2-ggplot}
+b_hats %>% # take b_hats
+  group_by(mc) %>% # apply all calculations within groups of mc
+  summarise_all(mean) %>%
+  ggplot() +
+  geom_point(aes(x =  c(0, 0.3, 0.6, 0.9),
+                 y = `Std. Error`)) +
+  labs(x = "Multicollinearity",
+       title = "Multicollinearity and Standard Error",
+       y = "Standard Error") +
+  theme_classic() +
+  scale_x_continuous(breaks = c(0, 0.3, 0.6, 0.9))
+
+```
+
+> Multicollinearity increases the sampling variance of the OLS coefficients. This in turn increases the SEs and CIs of the coefficients. The good news is that even strong multicollinearity does not bias our coefficients. 
+
+
+# Heteroscedasticity
+
+```{r}
+# Generate some data
+
+x <- runif(100, 0.2, 1)
+e <- rnorm(100, 0, 0.5)
+
+y1 <- 2 * x + e # This creates homoscedastic data.
+```
+
+If the variance of the error term is correlated with $x$, we get heteroscedastic data. 
+
+```{r}
+y2 <- 2 * x + e * x^2 
+```
+
+### Let's have a look at it. {- .tabset}
+
+#### Base R {-}
+
+```{r}
+par(mfrow = c(1, 2))
+# Homoscedastic data
+plot(x = x, 
+     y = y1, 
+     pch = 19,
+     col = viridis(1, 0.75)[1],
+     bty = "n", 
+     las = 1, 
+     main = "Homoskedastic data")
+
+# Heteroskedastic data
+plot(x = x, 
+     y = y2, 
+     pch = 19,
+     col = viridis(1, 0.75)[1],
+     bty = "n", 
+     las = 1, 
+     main = "Heteroskedastic data")
+```
+
+
+#### ggplot2 {-}
+
+```{r}
+# Homoscedastic data
+p_hom <- ggplot() +
+  geom_point(aes(x = x, y = y1),
+             size = 2,
+             color = viridis(1, 0.75)[1]
+             ) + 
+  labs(
+    title = "Homoskedastic data",
+    x = "x",
+    y = "y1"
+  ) +
+  theme_classic() 
+# Heteroskedastic data
+p_het <- ggplot() +
+  geom_point(aes(x = x, y = y2),
+    color = viridis(1, 0.75)[1], 
+    size = 2
+    ) + 
+  labs(
+    title = "Heteroskedastic data",
+    x = "x",
+    y = "y2"
+  ) +
+  theme_classic()
+p_hom + p_het
+```
+
+### Now we run the regressions. {.unlisted .unnumbered .tabset}
+
+```{r}
+reg_hom <- lm(y1 ~ x) 
+reg_het <- lm(y2 ~ x)
+```
+
+
+Have a look at the residuals.
+
+#### Base R {-}
+
+```{r}
+par(mfrow = c(1, 2))
+
+plot(x = fitted.values(reg_hom), 
+     y = residuals(reg_hom),
+     pch = 19, 
+     xlab = "Fitted Values", 
+     ylab = "Residuals",
+     main = "Homoscedasticity",
+     col = viridis(1, 0.75),
+     bty = "n", 
+     ylim = c(-1.5, 1),
+     las = 1)
+abline(h = 0)
+
+plot(x = fitted.values(reg_het), 
+     y = residuals(reg_het),
+     pch = 19, 
+     xlab = "Fitted Values", 
+     ylab = "Residuals",
+     main = "Heteroscedasticity",
+     col = viridis(1, 0.75),
+     bty = "n", 
+     ylim = c(-1.5, 1),
+     las = 1)
+abline(h = 0)
+```
+
+
+#### ggplot2 {-}
+
+```{r}
+
+p1 <- ggplot(data = reg_hom$model,
+             aes(x = x, y = residuals(reg_hom))) +
+  geom_point(color = viridis(1, 0.75), # add points
+             size = 2) + 
+  theme_classic() + # change the appearance
+  labs(x = "X",
+       y = "Residuals",
+       title = "Homoscedasticity")  +
+  geom_hline(yintercept = 0, # add the line
+             size = 0.5) +
+  scale_y_continuous(limits = c(-1.5, 2))
+
+
+p2 <- ggplot(data = reg_hom$model,
+             aes(x = x, y = residuals(reg_het))) +
+  geom_point(color = viridis(1, 0.75), # add points
+             size = 2) + 
+  theme_classic() + # change the appearance
+  labs(x = "X",
+       y = "Residuals",
+       title = "Heteroscedasticity")  +
+  geom_hline(yintercept = 0, # add the line
+             size = 0.5) +
+  scale_y_continuous(limits = c(-1.5, 2))
+
+p1 + p2 
+```
+
+### What can we do about it? Use Robust Standard Errors: e.g. `sandwich` package {.unlisted .unnumbered .tabset}
+ 
+```{r}
+data <- as.data.frame(cbind(y2, x))
+
+reg_ols <- lm(y2 ~ x,
+              data = data)
+
+summary(reg_ols)
+
+vcovHC(reg_ols)
+sqrt(diag(vcovHC(reg_ols)))
+coeftest(reg_ols, vcov. = vcovHC)
+```
+
+However, differences between robust and normal standard errors often reveal problems with your model specification.
+
+See for example: [King and Roberts 2015: How Robust Standard Errors Expose Methodological Problems They Do Not Fix, and What to Do About It](https://doi.org/10.1093/pan/mpu015).
+
+In AQM next semester you will learn how to model heteroscedastic regressions.
+
+# Outliers/Influential Observations 
+
+```{r outliers}
+# Some fake data
+
+x <- c(rnorm(99, 0, 1), 5)
+y <- c(rnorm(99, 1, 1), 20)
+
+data <- data.frame(cbind(x, y))
+m1 <- lm(y ~ x, data = data)
+summary(m1)
+```
+
+### Let's plot the values {.tabset}
+
+#### Base R {-}
+
+```{r outliers-base}
+plot(x, y,
+     pch = 19, 
+     col = two_cols_alpha[1],
+     bty = "n", 
+     las = 1)
+abline(lm(y ~ x), col = two_cols[1])
+```
+
+
+#### ggplot2 {-}
+
+```{r outliers-ggplot2}
+ggplot() +
+  geom_point(aes(x = x, y = y), 
+             color = viridis(1, alpha = 0.5), # add points
+             size = 2) + 
+  geom_abline(intercept = m1$coefficients[1], # add the line
+              slope = m1$coefficients[2],
+              color = viridis(1),
+              size = 1) +
+  theme_classic()
+```
+
+
+### Cook's Distance {.unlisted .unnumbered .tabset}
+
+```{r cooks-distance}
+# calculate Cook's distance
+D <- cooks.distance(m1)
+
+# ...and plot it
+plot(D, 
+     main = "Cook's Distance",
+     pch = 19, 
+     col = two_cols_alpha[1],
+     bty = "n", 
+     las = 1)
+```
+
+Drop observations (here it is just the one observation).
+
+```{r}
+s <- D < 1
+```
+
+Run the regression without the outlier.
+
+```{r}
+m2 <- lm(y ~ x, 
+         data = data[s,])
+summary(m2)
+```
+
+#### Base R {-}
+
+Let's compare the two models.
+
+```{r}
+par(mfrow = c(1, 2))
+
+# First the model without excluding the outlier
+plot(x = x, 
+     y = y, 
+     xlim = c(-3, 5), 
+     ylim = c(-1.5, 20), 
+     main = "Model with Outlier",
+     pch = 19, 
+     col = two_cols_alpha[1],
+     bty = "n", las = 1)
+abline(m1, col = two_cols[1])
+
+# Second the model excluding the outlier
+plot(x = x[s], 
+     y = y[s], 
+     xlim = c(-3, 5), 
+     ylim = c(-1.5, 20), 
+     main = "Model without Outlier",
+     pch = 19, 
+     col = two_cols_alpha[1],
+     bty = "n", 
+     las = 1)
+abline(m2, col = two_cols[1])
+```
+
+> Outliers can heavily influence our estimates. Usually, we do not want the results of regression analyses to depend on few influential outliers.
+
+
+#### ggplot2 {-}
+
+```{r}
+
+# First the model without excluding the outlier    
+p1 <- ggplot() +
+  geom_point(aes(x = x, y = y), 
+             color = viridis(1, alpha = 0.5), # add points
+             size = 2) + 
+  geom_abline(intercept = m1$coefficients[1], # add the line
+              slope = m1$coefficients[2],
+              color = viridis(1),
+              size = 1) +
+  theme_classic() +
+  labs(title = "Model with outlier") 
+
+# Second the model excluding the outlier
+p2 <- ggplot() +
+  geom_point(aes(x = x, y = y), 
+             color = viridis(1, alpha = 0.5), # add points
+             size = 2) + 
+  geom_abline(intercept = m2$coefficients[1], # add the line
+              slope = m2$coefficients[2],
+              color = viridis(1),
+              size = 1) +
+  theme_classic() +
+  labs(title = "Model without outlier") 
+
+p1 + p2
+```
+
+> Outliers can heavily influence our estimates. Usually, we do not want the results of regression analyses to depend on few influential outliers.
+
+
+## Exercise Section: Measurement error in Y
+
+What happens if we have measurement error for the dependent variable Y? Run a Monte Carlo simulation for measurement error in Y (Without measurement error in V2 or V3.)
+
+For this, you will have to adjust the gen_pop function. **Note:** To add measurement error in Y, you need to add only one line of code.
+
+```{r}
+gen_pop <- function(mus, varcov, b, sigma_est, sigma_err){
+  
+  # Generate IV
+  X <- mvrnorm(n = 100000, 
+               mu = mus, 
+               Sigma = varcov)
+  
+  mu_y <- cbind(1,X) %*% b
+  
+  Y <- rnorm(100000, 
+             mean = mu_y, 
+             sd = sigma_est)
+  
+  # Add measurement error in Y
+  # Y <- ???
+  
+  population <- data.frame(cbind(Y, X))
+  
+  return(population)
+}
+```
+
+Now run the following code to see how different levels of measurement error in Y affect our estimates:
+
+We assume no multicollinearity
+
+```{r}
+
+cor_mat1 <- matrix(c(1, 0, 0, 1), 
+                   nrow = 2, 
+                   ncol = 2)
+
+varcov1 <- sds_mat %*% cor_mat1 %*% sds_mat 
+
+# No measurement error
+pop1 <- gen_pop(mus = mus, 
+                varcov = varcov1, 
+                b = b,
+                sigma_est = sigma_est, 
+                sigma_err = 0)
+
+# Small measurement error
+pop2 <- gen_pop(mus = mus, 
+                varcov = varcov1, 
+                b = b,
+                sigma_est = sigma_est, 
+                sigma_err = 0.25)
+
+# High measurement error
+pop3 <- gen_pop(mus = mus, 
+                varcov = varcov1, 
+                b = b,
+                sigma_est = sigma_est, 
+                sigma_err = 0.5)
+
+# Very high measurement error
+pop4 <- gen_pop(mus = mus, 
+                varcov = varcov1, 
+                b = b,
+                sigma_est = sigma_est, 
+                sigma_err = 1)
+```
+
+Simulate n times
+
+```{r}
+b_hats_no <- t(replicate(1000, drawncalc(pop = pop1)))
+
+b_hats_small <- t(replicate(1000, drawncalc(pop = pop2)))
+
+b_hats_high <- t(replicate(1000, drawncalc(pop = pop3)))
+
+b_hats_veryhigh <- t(replicate(1000, drawncalc(pop = pop4)))
+
+```
+
+### And plot the results  {.unlisted .unnumbered .tabset}
+
+#### Base R {-}
+
+```{r}
+par(mfrow = c(1, 2))
+
+# first plot
+
+plot(density(b_hats_no[, 1]), 
+     xlim = c(2.7, 3.05), 
+     main = "Point Estimate",
+     bty = "n", 
+     las = 1, 
+     yaxt = "n", 
+     ylab = "",
+     xlab = "",
+     type = "n")
+
+polygon(density(b_hats_no[, 1]),
+        col = four_cols_alpha[1],
+        border = F)
+polygon(density(b_hats_small[, 1]),
+        col = four_cols_alpha[2],
+        border = F)
+polygon(density(b_hats_high[, 1]),
+        col = four_cols_alpha[3],
+        border = F)
+polygon(density(b_hats_veryhigh[, 1]),
+        col = four_cols_alpha[4],
+        border = F)
+
+lines(density(b_hats_no[, 1]), 
+      col = four_cols[1])
+lines(density(b_hats_small[, 1]), 
+      col = four_cols[2])
+lines(density(b_hats_high[, 1]), 
+      col = four_cols[3])
+lines(density(b_hats_veryhigh[, 1]), 
+      col = four_cols[4])
+
+abline(v = c(mean(b_hats_no[, 1]), 
+             mean(b_hats_small[, 1]),
+             mean(b_hats_high[, 1]), 
+             mean(b_hats_veryhigh[, 1])),
+       col = four_cols, lty = 2)
+
+legend("topleft", 
+       legend = c("No", "Small", "High", "Very high"),
+       col = four_cols, 
+       lty = "dashed", 
+       cex = 0.7,
+       bty = "n")
+
+# second plot 
+
+plot(density(b_hats_no[, 2]), 
+     xlim = c(0.009, 0.04), 
+     main = "Standard Error",
+     bty = "n", 
+     las = 1, 
+     yaxt = "n", 
+     ylab = "",
+     xlab = "",
+     type = "n")
+
+polygon(density(b_hats_no[, 2]),
+        col = four_cols_alpha[1],
+        border = F)
+polygon(density(b_hats_small[, 2]),
+        col = four_cols_alpha[2],
+        border = F)
+polygon(density(b_hats_high[, 2]),
+        col = four_cols_alpha[3],
+        border = F)
+polygon(density(b_hats_veryhigh[, 2]),
+        col = four_cols_alpha[4],
+        border = F)
+
+lines(density(b_hats_no[, 2]), 
+      col = four_cols[1])
+lines(density(b_hats_small[, 2]), 
+      col = four_cols[2])
+lines(density(b_hats_high[, 2]), 
+      col = four_cols[3])
+lines(density(b_hats_veryhigh[, 2]), 
+      col = four_cols[4])
+
+abline(v = c(mean(b_hats_no[, 2]), 
+             mean(b_hats_small[, 2]),
+             mean(b_hats_high[, 2]), 
+             mean(b_hats_veryhigh[, 2])),
+       col = four_cols, 
+       lty = 2)
+```
+
+What do you observe?
+
+
+> Because the measurement error is uncorrelated with X, the OLS estimators are unbiased, but the variance is inflated (larger variances, larger standard errors).
+
+
+#### ggplot2 {-}
+
+```{r}
+b_hats <- as.data.frame(rbind(b_hats_no,
+                              b_hats_small,
+                              b_hats_high,
+                              b_hats_veryhigh))
+b_hats$error <-
+  factor(rep(c("No", "Small", "High", "Very High"), each = nrow(b_hats) / 4), 
+         levels = c("No", "Small", "High", "Very High"))
+
+
+# first plot
+
+p1 <- ggplot(data = b_hats, aes(x = Estimate,  fill = error, color = error)) +
+  labs(
+    title = "Point Estimate",
+    x = "",
+    y = "",
+    fill = "Measurement Error",
+    color = "Measurement Error"
+  ) +
+  geom_density() + # add densities 
+  geom_vline( # manually add lines with means 
+    xintercept = b_hats %>% # take b_hats 
+      group_by(error) %>% # apply all calculations within groups of error
+      summarise(mean = mean(Estimate)) %>% #  take mean of Estimate column 
+      pull(mean), # pull the mean column 
+    linetype = "dashed",
+    color = viridis(4)
+  ) +
+  scale_fill_viridis(discrete = T, alpha = 0.5) +
+  scale_color_viridis(discrete = T) +
+  theme(legend.title = element_text()) +
+  geom_hline( # remove the bottom line for cleaner look 
+    yintercept = 0,
+    color = "white" # grid line color
+    )
+
+# second plot 
+
+p2 <- ggplot(data = b_hats, aes(x = `Std. Error`, fill = error, color= error)) +
+  labs(
+    title = "Standard Error",
+    x = "",
+    y = "",
+    fill = "Measurement Error",
+    color = "Measurement Error"
+  ) +
+  geom_density() +
+  geom_vline( # manually add lines with means 
+    xintercept = b_hats %>% # take b_hats 
+      group_by(error) %>% # apply all calculations within groups of error
+      summarise(mean = mean(`Std. Error`)) %>% #  take mean of `Std. Error` column 
+      pull(mean), # pull the mean column 
+    linetype = "dashed",
+    color = viridis(4)
+  ) +
+  scale_fill_viridis(discrete = T, alpha = 0.5) +
+  scale_color_viridis(discrete = T) +
+  theme(legend.title = element_text()) +
+  geom_hline( # remove the bottom line for cleaner look 
+    yintercept = 0,
+    color = "white" # grid line color
+    )
+
+# put plots together with patchwork package 
+p1 + p2 + plot_layout(guides = "collect") +
+  plot_annotation(title = "The Effect of Measurement Error in Y on Estimates") 
+```
+
+What do you observe?
+
+
+> Because the measurement error is uncorrelated with X, the OLS estimators are unbiased, but the variance is inflated (larger variances, larger standard errors).
+
+## Concluding Remarks
+

@@ -1,0 +1,567 @@
+---
+title: "Quantitative Methods in Political Science - Homework 10"
+author: 
+  - "Tobias Fechner (50%), Simran Suresh Bhurat (50%)"
+date: "Due: December 7, 2021"
+output:
+  pdf_document:
+    toc: yes
+  html_document:
+    toc: no
+bibliography: citations.bib # this adds a bibliography file from the repo
+biblio-style: apsr # this selects the style 
+---
+
+```{r setup, include=FALSE}
+# The first line sets an option for the final document that can be produced from
+# the .Rmd file. Don't worry about it.
+knitr::opts_chunk$set(echo = TRUE)
+
+# The next bit (lines 22-43) is quite powerful and useful. 
+# First you define which packages you need for your analysis and assign it to 
+# the p_needed object. 
+p_needed <-
+c("viridis", "stargazer", "MASS", "optimx", "scales", "foreign", "patchwork", "stargazer",  "ggridges", "plotly") #countreg
+
+# Now you check which packages are already installed on your computer.
+# The function installed.packages() returns a vector with all the installed 
+# packages.
+packages <- rownames(installed.packages())
+# Then you check which of the packages you need are not installed on your 
+# computer yet. Essentially you compare the vector p_needed with the vector
+# packages. The result of this comparison is assigned to p_to_install.
+p_to_install <- p_needed[!(p_needed %in% packages)]
+# If at least one element is in p_to_install you then install those missing
+# packages.
+if (length(p_to_install) > 0) {
+  install.packages(p_to_install)
+}
+# Now that all packages are installed on the computer, you can load them for
+# this project. Additionally the expression returns whether the packages were
+# successfully loaded.
+sapply(p_needed, require, character.only = TRUE)
+
+# This is an option for stargazer tables
+# It automatically adapts the output to html or latex,
+# depending on whether we want a html or pdf file
+stargazer_opt <- ifelse(knitr::is_latex_output(), "latex", "html")
+```
+
+-   *Please try to answer the questions with **short** but very **precise** statements. However, do not hide behind seemingly fancy jargon.*
+-   *If you do not have any special reason, please do not load additional packages to solve this homework assignment. If you nevertheless do so, please indicate why you think this is necessary and add the package to the `p_needed` vector in the setup chunk.*
+-   *In addition to the `Rmd`, please make sure that in the repo, there is a PDF knitted from the latest version of your code. The automated check for reproducibility on Github will run only when you include the word "final" into the commit message.*
+-   *This time, we will ask you to start paying special attention to editing and formatting (this will be useful for your Data essay), so you start to use chunk options. You are welcome to have a look at lab code for examples of using chunk options or to consult [this page](https://yihui.org/knitr/options/).*
+
+```{=tex}
+\thispagestyle{empty}
+\newpage
+```
+
+## Part 1: Poisson MLE
+
+In 1982, S. Sidney Ulmer, writing in the American Journal of Political Science (AJPS), demonstrated that yearly Supreme Court appointments follow a Poisson distribution. Between 1790 and 1980, @ulmer_1982 tabulated the following:
+
+| Number of appointments $k$ | Number of years with $k$ appointments |
+|:---------------------------|:--------------------------------------|
+| 0                          | 114                                   |
+| 1                          | 58                                    |
+| 2                          | 17                                    |
+| 3                          | 2                                     |
+| 4 or more                  | 0                                     |
+
+To begin, enter these data into `R`, such that N = 191 (N = length of the vector). Then:
+
+*1. Write both, a likelihood function and a log-likelihood function for the Poisson distribution in `R`,*
+
+
+
+$$
+f_{Poisson}(k, \lambda) = \frac{\lambda^ke^{-\lambda}}{k!}
+$$
+
+likelihood function:
+
+$$
+L (\lambda|Y) = \prod_{i=1}^{n}\frac{e^{-\lambda_{i}}\lambda_{i}^{y_{i}}}{y_{i}!}
+$$
+
+Log likelihood function:
+$$
+ln L(\lambda|Y) = \sum_{i=1}^{n} (y_{i}ln(\lambda_i)-(\lambda_i))
+$$
+
+
+```{r}
+x <- c(0, 1, 2, 3, 4)
+y <- c(114, 58, 17, 2, 0)
+df <- data.frame(x, y)
+```
+
+```{r maximum likelihood estimation functions (MLE)}
+
+# Poisson likelihood function
+poisson_l <- function(lambda, k){
+  l <- prod(exp(-lambda) * lambda ^ k / (gamma(k+1)))
+  return(l)
+}
+
+# Poisson log likelihood function
+poisson_ll <- function(lambda, k){
+  l <- sum(k * log(lambda) - lambda)
+  return(l)
+}
+
+```
+
+
+
+*and plot the two functions for values of the parameter $\lambda$ between 0 and 2 (Hint: You might want to use sapply or a for loop to achieve this). $k$ represents the number of occurrences of an event. In this case, the observed number of Supreme Court appointments in a year. Briefly describe the plot.*
+
+```{r}
+poisson_l(2.5, x)
+poisson_l(2, x)
+poisson_l(1.5, x)
+```
+
+
+```{r }
+rangeMaxPoint <- 5 
+
+y1 <- c()
+for (lambda in seq(0, rangeMaxPoint, by=0.01)){
+  y1 <- c(y1, poisson_l(lambda, x))
+}
+
+plot(x = seq(0, rangeMaxPoint, by=0.01),
+    y = y1,
+    pch = 19,
+    cex = 0.5,#
+    main = "Effect of Lambda on Likelihood",
+    font.main = 1,
+    cex.main = 0.8,
+    ylab = "Likelihood",
+    xlab = "Lambda",
+    bty = "n"
+)
+
+```
+
+```{r}
+y2 <- c()
+for (lambda in seq(0, rangeMaxPoint, by=0.01)){
+  y2 <- c(y2, poisson_ll(lambda, x))
+}
+
+plot(x = seq(0, rangeMaxPoint, by=0.01),
+    y = y2,
+    pch = 19,
+    cex = 0.5,#
+    main = "Effect of Lambda on Log Likelihood",
+    font.main = 1,
+    cex.main = 0.8,
+    ylab = "Log Likelihood",
+    xlab = "Lambda",
+    bty = "n"
+)
+```
+
+
+
+
+*2. Create a descriptive plot of the dependent variable __number of yearly Supreme Court appointments__. Briefly describe the variable, what is displayed in the plot and how the observed data is distributed.*
+
+```{r 1-2}
+# variable __number of yearly Supreme Court appointments__.
+
+# library(plotly)
+# 
+# fig <-  plot_ly(x = df$x, y = df$y, type = 'bar') %>%
+#   layout(title = 'Distribution of Number of appointments',
+#          plot_bgcolor='#e5ecf6',
+#          xaxis = list(
+#            title = 'Number of appointments',
+#            zerolinecolor = '#ffff',
+#            zerolinewidth = 2,
+#            gridcolor = 'ffff'),
+#          yaxis = list(
+#            title = 'Number of years with k appointments',
+#            zerolinecolor = '#ffff',
+#            zerolinewidth = 2,
+#            gridcolor = 'ffff'))
+# 
+# fig
+
+```
+
+
+
+```{r}
+barplot(df$y,
+        main = "Distribution of Number of appointments",
+        xlab = "Number of appointments",
+        ylab = "Number of years with k appointments", 
+        names.arg = c("0", "1","2","3","4"),
+        col = viridis(1),
+        border = F,
+        las = 1)
+```
+
+Answer:
+
+We can see in the graph that we have more cases where the number of appointments is zero compared to one two and three. The amount decreases with a higher number of appointments per given year. Therefore, the distribution graph is highly skewed to the right. 
+We have no case where there were four appointments. 
+
+
+*3. Use the appropriate `R` function (for a one-dimensional optimization problem) to find the maximum likelihood estimate of $\lambda$. Given this parameter estimate, check to make sure that the data really are Poisson distributed. For this, plot expected values from a Poisson distribution with the estimated $\lambda$ and a histogram with the actual observations. How close are our observed and expected values? If your function worked properly, show that $\hat{\lambda} \approx \bar{k}$, where $\bar{k} =$ the mean of appointments per year.*
+
+
+```{r}
+res2 <- optimize(poisson_l, c(0, 10), k = x,  maximum = T)
+res2
+```
+
+```{r}
+res1 <- optimize(poisson_ll, c(0, 10), k = x,  maximum = T)
+res1
+```
+
+```{r}
+p <- seq(0, rangeMaxPoint, by=0.01)
+lambda <- res2$maximum
+
+res_loglik <- c()
+for (lambda in seq(0, rangeMaxPoint, by=0.01)){
+  res_loglik <- c(res_loglik, poisson_l(lambda, x))
+}
+```
+
+```{r}
+plot(
+  p,
+  res_loglik,
+  type = "l",
+  las = 1,
+  bty = "n",
+  ylab = "logL(p)",
+  col = magma(2)[1]
+)
+abline(v = res2$maximum,
+       lwd = 2,
+       lty = "dashed")
+
+```
+
+```{r}
+# , plot expected values from a Poisson distribution with the estimated $\lambda$ and a histogram with the actual observations.
+
+m0 <- glm(y ~ x, df, family = "poisson", )
+
+n <- 10000
+
+l_response <- function(x) {
+  exp(x) / (1 + exp(x))
+}
+
+```
+
+```{r}
+m0
+```
+```{r}
+coef(m0)
+```
+
+
+```{r}
+# 1. get the coefficients
+beta_hat <- coef(m0)
+
+# 2. Get the variance-covariance matrix
+V_hat <- vcov(m0)
+
+# 3. Set up a multivariate normal distribution N(beta_hat, V_hat)
+# 4. Draw from the distribution nsim times
+nsim <- 10000
+S <- mvrnorm(
+  n = nsim,
+  mu = beta_hat,
+  Sigma = V_hat
+)
+```
+
+
+
+```{r Calculate Expected Values}
+# we simulate over a sequence of x-values
+seq_X <- seq(min(df$x), max(df$x), length.out = 100)
+scenario <- cbind(1, seq_X)
+
+# linear predictor
+Xbeta <- S %*% t(scenario)
+
+dim(Xbeta)
+
+```
+
+```{r}
+p_sim <- (exp(Xbeta)) / (1 + exp(Xbeta))
+
+# we can also use our own function:
+p_sim <- l_response(Xbeta)
+
+# or the build-in R-function for logistic distribution function (CDF):
+p_sim <- plogis(Xbeta) # aka inverse logit
+
+dim(p_sim)
+## [1] 10000   100
+```
+
+```{r}
+p_mean <- apply(p_sim, 2, mean)
+p_qu <- t(apply(p_sim, 2, quantile, prob = c(0.025, 0.975)))
+```
+
+```{r}
+plot(
+  x = seq_X,
+  y = p_mean,
+  ylim = c(0, 1),
+  xlim = range(pretty(seq_X)),
+  type = "n",
+  main = "Predicted Probabilies of Y",
+  ylab = "Probability of Y",
+  xlab = "X",
+  bty = "n",
+  las = 1
+)
+
+# plot uncertainty with a polygon
+polygon(
+  x = c(rev(seq_X), seq_X),
+  y = c(rev(p_qu[, 2]), p_qu[, 1]),
+  col = viridis(1, 0.4),
+  border = NA
+)
+
+# and a line
+lines(
+  x = seq_X,
+  y = p_mean,
+  lwd = 2
+)
+```
+
+
+Answer:
+
+
+The optimum of Lambda is 1.999996.
+The predicted probability of y fits very well for the cases of 0,1 and 2 appointments, but for 3 and 4 appointments the model is not working properly.
+This is because the confidence interval is rather big in case 3 and 4.
+The expected values are therefore quite close in the lower range. 
+
+*4. Explain the concept over- and underdispersion in the context of yearly number of Supreme Court appointments (no coding required).*
+
+Answer:
+
+In the Possion model the Mean and Variance is equal to the rate that we estimate.
+
+Over dispersion
+- Means when there is more variability then expected (Variance > Mean)
+
+Under dispersion
+- Means when there is less variability then expected (Variance < Mean)
+
+In our context it could be that our model is specified wrong and there are missing interaction terms. The number of appointments could also be depend on the ruling party. In this data set we have 0 target variables. This could also cause Dispersion.
+
+## Part 2: Civil Wars - Revisited
+
+In their paper, @eck_hultman_2007 present new data on one-sided violence in intrastate armed conflicts. They present the results of six different models, assessing the determinants of one-sided violence. Four of the models are negative binomial models.
+
+The dataset `eck_rep.dta` contains the data used in @eck_hultman_2007. Please exclude the outlier Rwanda 1994 - as in the lab - for the analysis. The following table gives an overview of the variables you will need for the models:
+
+| Variables in Table IV      | Name in dataset                       |
+|:---------------------------|:--------------------------------------|
+| One-sided killings         | `os_best`                             |
+| Previous War               | `war15yrs`                            |
+| Civil War                  | `intensity_dyad`                      |
+| Autocracy                  | `auto`                                |
+| Democracy                  | `demo`                                |
+| Trade                      | `trade_gdp_alt`                       |
+| Government                 | `govt`                                |
+| One-sided violence$_{t-1}$ | `prior_os`                            |
+
+
+
+*1. Load the data and create a your own version of the lagged variable `prior_os` that measures the number of one-sided killings, `os_best`, in the previous year $t-1$ (Hint: The resulting variable takes the value of `os_best` one year prior to the existing observation). Compare the lagged variable you created to the existing one, `prior_os`. Are there any differences and where do they originate from?* ^[ [Create Lagged Variable by Group](https://www.geeksforgeeks.org/create-lagged-variable-by-group-in-r-dataframe/) ]
+
+
+```{r 2-1}
+dta <- read.dta("raw-data/eck_rep.dta", convert.factors = FALSE)
+
+#  Some data preparation
+dta$os_best[dta$os_best == 500000] <- NA # Rwanda
+
+#lagged variable
+dta$lagged_variable <- lag(dta$os_best, n = 1, default = NA)
+
+# Omit NAs (as our log-likelihood can't handle missings)
+dta2 <- na.omit(dta[,c("prior_os", "lagged_variable", "os_best")])
+#dta2
+
+
+```
+
+Answer: The logged_variable is originated from os_best. The value of the logged_variable is one year prior to the os_best variable. Both prior_os and the logged_variable are same except there are few missing values in the prior_os.
+
+
+*2. Replicate models 3 and 4 presented in Table IV on page 243 (Hint: You can use the glm.nb function for this). Present your results in a nice-looking table. Your (coefficient) estimates should be identical to the ones reported in the paper, but standard errors will be different. Hide the code you use to generate the table, but report the table itself.*
+
+```{r 2-2, include=FALSE}
+
+m3 <- glm.nb(os_best ~ war15yrs + auto + trade_gdp_alt + prior_os , dta, control = glm.control(maxit = 100))
+summary(m3)
+
+
+m4 <- glm.nb(os_best ~ intensity_dyad + auto + demo + govt + prior_os , dta, control = glm.control(maxit = 100))
+summary(m4)
+
+```
+
+```{r results='asis'}
+stargazer(
+  list(m3, m4),
+  out = "table_lab.tex",
+  title = "Regression Results",
+  notes = "Excluding observation Rwanda 1994",
+  intercept.bottom = TRUE,
+  covariate.labels = c(
+    "Civil War",
+    "Autocracy",
+    "Democracy",
+    "Government",
+    "One sided Violence t-1",
+    "Constant"
+  ),
+  dep.var.labels = c("Number killed in one-sided violence"),
+  #table.placement = "H", # latex output, keep the figure at exactly Here in text
+  type = stargazer_opt
+)
+```
+
+
+
+*3. Calculate and present a first difference for government initiated one-sided killings between a __Democracy without a civil war and without prior one-sided violence__ and an __Autocracy with a civil war and 400 prior one-sided killings__. Use model 4 to calculate first differences. In your answer, describe the scenarios you compare, what the plot shows (axes, data points, etc.) and your interpretation of the results.*
+
+```{r 2-3}
+nsim <- 1000
+
+# 1. get the coefficients
+gamma_hat <- coef(m4)
+
+# 2. Get the variance-covariance matrix
+V_hat <- vcov(m4)
+
+# 3. Set up a multivariate normal distribution N(gamma_hat, V_hat)
+# 4. Draw from the distribution nsim times
+S <- mvrnorm(nsim, gamma_hat, V_hat)
+
+names(gamma_hat)
+
+#Scenario 1 without Civil War and 400 Prior one-sided violence
+scenario1 <- cbind(
+  1, # Intercept
+  0, # civil war (dyadic)
+  0,  # autocracy
+  1, # democracy
+  median(dta$govt, na.rm = TRUE), # median of one-sided violence by government
+  0 #prior one-sided violence
+) 
+colnames(scenario1) <- names(gamma_hat)
+scenario1
+
+#Scenario 2 with Civil War and 400 Prior one-sided violence
+scenario2 <- cbind(
+  1, # Intercept
+  median(dta$intensity_dyad, na.rm = TRUE), # median of civil war (dyadic)
+  1,  # autocracy
+  0, # democracy
+  median(dta$govt, na.rm = TRUE), # median of one-sided violence by government
+  mean(dta$prior_os[0:400], na.rm = TRUE) # mean of prior one-sided violence
+) 
+colnames(scenario2) <- names(gamma_hat)
+scenario2
+
+Xbeta1 <- S %*% t(scenario1)
+Xbeta2 <- S %*% t(scenario2)
+
+lambda1 <- exp(Xbeta1)
+lambda2 <- exp(Xbeta2)
+
+theta_m4 <- m4$theta
+
+exp_scenario1_m4 <-
+  sapply(lambda1, function(x)
+    mean(rnbinom(1000, size = theta_m4, mu = x)))
+
+exp_scenario2_m4 <-
+  sapply(lambda2, function(x)
+    mean(rnbinom(1000, size = theta_m4, mu = x)))
+
+exp_values <- cbind(exp_scenario1_m4, exp_scenario2_m4)
+df_m4 <- data.frame(exp_values)
+
+first_difference_m4 <- exp_scenario1_m4 - exp_scenario2_m4
+median_m4 <- median(first_difference_m4)
+ci_fd_m4 <- quantile(first_difference_m4, probs = c(0.025, 0.975))
+
+```
+
+
+```{r}
+hist(
+  first_difference_m4,
+  main = "Government initiated one-sided killing",
+  las = 1,
+  col = viridis(4)[3],
+  border = "white",
+  xlab = "Prior One sided killing",
+  ylab = "Difference in expected one-sided killings",
+)
+
+quants_mean_fun <-  function(x) {
+  c(quants = ci_fd_m4,
+  median = median_m4)
+}
+
+quants_fd <- apply(as.matrix(first_difference_m4), 2, quants_mean_fun)
+
+abline(v = quants_fd, lty = 2, col = viridis(4)[4])
+
+legend("topleft",
+       lty = "solid",
+       col = viridis(4)[3:4],
+       legend = c("First Difference","95% Confidence Interval"),
+       cex = 0.8,
+       bty = "n")
+```
+
+
+
+Answer: We created two scenarios where one scenario was government initiated one-sided killing for democracy without civil war and prior one-sided knowledge. The second scenario government initiated one-sided killing for autocracy with civil war and 400 prior one-sided knowledge. The above graph shows the first difference between the two scenarios along with the median and 95% quantile. We calculate the first difference to know who(democracy or autocracy here) has more number of killings.
+
+The first difference doesn’t include zero within the confidence interval which means that we can reject the hypothesis. Which means that the difference between the prior one-sided killings in autocracy and democracy is significant.
+
+\newpage
+
+## R code
+
+<!-- The chunk below will print out the code from all the chunks in the document, even if you chose to hide chunks in the main text with `echo=FALSE` chunk option or `include=FALSE` option. You do not need to put any code in this chunk manually: it will gather code from other chunks automatically. -->
+
+```{r ref.label=knitr::all_labels(), echo=TRUE, eval=FALSE}
+
+```
+
+\newpage
+
+## References

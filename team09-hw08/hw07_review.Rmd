@@ -1,0 +1,421 @@
+---
+title: "Quantitative Methods in Political Science - Homework 7"
+date: "Due: November 9, 2021"
+output:
+  pdf_document: 
+    toc: yes
+    latex_engine: xelatex
+  html_document:
+    toc: no
+---
+
+```{r setup, include=FALSE}
+# The first line sets an option for the final document that can be produced from
+# the .Rmd file. Don't worry about it.
+knitr::opts_chunk$set(echo = TRUE)
+
+# The next bit is quite powerful and useful. 
+# First you define which packages you need for your analysis and assign it to 
+# the p_needed object. 
+p_needed <-
+  c("viridis", "stargazer", "MASS")
+
+# Now you check which packages are already installed on your computer.
+# The function installed.packages() returns a vector with all the installed 
+# packages.
+packages <- rownames(installed.packages())
+# Then you check which of the packages you need are not installed on your 
+# computer yet. Essentially you compare the vector p_needed with the vector
+# packages. The result of this comparison is assigned to p_to_install.
+p_to_install <- p_needed[!(p_needed %in% packages)]
+# If at least one element is in p_to_install you then install those missing
+# packages.
+if (length(p_to_install) > 0) {
+  install.packages(p_to_install)
+}
+# Now that all packages are installed on the computer, you can load them for
+# this project. Additionally the expression returns whether the packages were
+# successfully loaded.
+sapply(p_needed, require, character.only = TRUE)
+
+# This is an option for stargazer tables
+# It automatically adapts the output to html or latex,
+# depending on whether we want a html or pdf file
+stargazer_opt <- ifelse(knitr::is_latex_output(), "latex", "html")
+```
+
+**Notes:**
+
+- *If you do not have any special reason, please do not load additional packages to solve this homework assignment. If you nevertheless do so, please indicate why you think this is necessary and add the package to the `p_needed` vector in the setup chunk above.*
+- In addition to the `Rmd`, please make sure that in the repo, there is a PDF knitted from your code. The automated check for reproducibility on Github will run only when you include the word "final" into the commit message.
+- Please try to answer the questions with **short** but very **precise** statements. However, do not hide behind seemingly fancy jargon.
+
+## Part 1: Definitions
+
+Re-read(!!) the King et al (2000) article and answer in one or two short sentences.
+
+**1.1 What are first differences?**
+
+Answer:  A first difference is the difference between two expected values.
+
+
+**1.1 Feedback**
+
+- The definition is right, but you could also add that it only contains estimation uncertainty and not fundamental uncertainty.
+
+**1.2 Explain what a simulation based 95% confidence interval for quantities of interest is.**
+
+Answer: The confidence interval describes the uncertainty of the simulated quantities of interest, so either the predicted or expected values. 95% of all simulated values lie within this interval. For example, we can draw 1000 values of Y, compute the function for each draw, sort the transformed draws from lowest to highest and take the 25th and 976th values.
+
+**1.2 Feedback**
+
+- The explaination is right. Please explain when it is a predicted or expected value. 
+- Please explain how the simulation approach it is done. 
+
+
+## Part 2: Simulation, simulation ...
+
+**2.1 In 150 words or less: Explain the different steps required to generate expected values from a regression model. Do not include any R code.**
+
+Answer: 
+1. Estimate the model by running the usual software program (which usually maximizes a likelihood function and record the point estimates and variance-covariance matrix.
+2. Set up a multivariate normal distribution.
+3. Choose one value for each explanatory variables and create a vector of these values.
+4. Calculate the expected values for each row of S, sampling distribution.
+5. Calculate summary measures(means,quantiles,confidence intervals) from simulated distribution of the expected value.
+
+**2.1 Feedback**
+
+1. It does not need to be a likelihood function to calculate the regression coefficeints. It can also be OLS. We don't need the point estimate right now. 
+2. This is right. In addition you could add that is beeing created with the coefficients and the variance-covariance matrix.
+3. That is right. 
+4. These are the average expected value of a variable 𝑌 which are conditional on a particular set of values 𝑋.
+5. Yes that is right
+
+**2.2 Complete the following `sim_function` that you can use to simulate expected values from a regression model.**
+
+```{r 2-3-sim-function}
+sim_function <- function(lm_obj, nsim = 1000, scenario){
+  
+  # Step 1: Get the regression coefficients
+  beta_hat <- coef(lm_obj)
+  
+  # Step 2: Generate sampling distribution
+  
+  # Step 2.1: Get the variance-covariance matrix.
+  V_hat <- vcov(lm_obj)
+  
+  # Step 2.2: Draw from the multivariate normal distribution.
+  library(MASS)
+  S <- mvrnorm(nsim, beta_hat, V_hat)
+  dim(S) # Check dimensions
+
+  # Step 3: Choose interesting covariate values. 
+  # Make sure the matrix multiplication also works for single scenarios
+  if(is.null(nrow(scenario))){
+    scenario <- matrix(scenario, nrow = 1)
+  }
+  
+  # Print a message if the scenario does not fit the regression.
+  if(ncol(scenario) != length(lm_obj$coefficients)){
+    return(cat("The scenario has the wrong number of variables."))
+  } 
+  
+  # Step 4: Calculate Quantities of Interest - 
+  # Expected Values
+  EV <-S %*% t(scenario)
+  
+  return(EV)
+  }
+```
+
+
+**2.2 Feedback**
+
+- You crated the function the right way. In your version you can only use one ore more scenarios. That is nice.
+- You also correctly did the check for the right amount of number of variables in the Input scenario.
+
+
+**2.3 Try your function on the examples from the Lab. Does it return similar results?**
+
+```{r 2-3-Testing-the-sim-function}
+load(file = "raw-data/election2013_2.RData")
+
+df_election <- as.data.frame(election2013_2)
+election2013 <- as.data.frame(election2013_2)
+summary(election2013)
+head(election2013)
+
+leftvote <- as.numeric(as.character(election2013$leftvote))
+east <- as.numeric(as.character(election2013$east))
+
+lm_obj <- lm(leftvote ~ unemployment + east + unemployment*east, data=election2013)
+
+X_east <- c(1, mean(election2013$unemployment), 1, mean(election2013$unemployment) * 1) # East
+X_west <- c(1, mean(election2013$unemployment), 0, mean(election2013$unemployment) * 0) # West
+
+X_scenario <- as.matrix(rbind(X_east, X_west))
+
+EV_east <- sim_function(lm_obj = lm_obj, nsim =1000, scenario = X_east)
+EV_west <- sim_function(lm_obj = lm_obj, nsim =1000, scenario = X_west)
+
+EV_combined <- sim_function(lm_obj = lm_obj, nsim =1000, scenario = X_scenario)
+#First difference
+fd <- EV_combined[,1] - EV_combined[,2]
+
+#west
+hist(EV_combined[, 2], las = 1, col = viridis(4)[1], border = "white", main = "", xlab = "Expected Values for the voteshare of Die Linke for districts in the West (With average unemployment rate)") 
+
+quants_mean_fun <- function(x) { c(quants = quantile(x, probs = c(0.025, 0.975)), mean = mean(x)) }
+quants_combined <- apply(EV_combined, 2, quants_mean_fun)
+# Add the lines to the plot.
+abline(v = c(quants_combined[, 2]), lty = 2, col = viridis(4)[4])
+#east
+hist( EV_combined[, 1], main = "", las = 1, col = viridis(4)[2], border = "white", xlab = "Expected Values for the voteshare of Die Linke for East
+(With average unemployment rate)" )
+abline(v = c(quants_combined[, 1]), lty = 2, col = viridis(4)[4])
+
+dev.off()
+
+hist(fd, main = "", las = 1, col = viridis(4)[3], border = "white", xlab = "First Differences for the voteshare of Die Linke between East and West
+(With average unemployment rate)")
+# Get mean and quantiles.
+quants_fd <- apply(as.matrix(fd), 2, quants_mean_fun)
+# Add the lines to the plot
+abline(v = quants_fd, lty = 2, col = viridis(4)[4])
+```
+Answer: Yes, results look similar.
+
+**2.3 Feedback**
+
+- These scenarios were defined the right way and you combined them. That is a great way to simplify the code. 
+- We really like your output graphs and the result is right. 
+
+## Part 3: Regression, inference and simulation
+
+Load the `infantmortality2.dta` data set that you can find in the raw-data folder. The data set contains (some of) the following variables for the 1970s:
+
+|  Variable           |   Description                                       |
+|:--------------------|:----------------------------------------------------|
+| `income`            | Per-capita income in U.S. dollars.                  |
+| `logincome`         | Per-capita income in U.S. dollars, logged.          |
+| `infant`            | Infant-mortality rate per 1000 live births.         |
+| `loginfant`         | Infant-mortality rate per 1000 live births, logged. |
+| `region`            | Africa; Americas; Asia, Asia and Oceania; Europe.   |
+| `AfricaDummy, etc.` | Dummies indicating the region of a country.         |
+| `oil`               | Oil-exporting country: no, yes.                     |
+
+Table: Variables in the `infantmortality2.dta` data set.
+
+**3.1 Create the transformed variables--region dummies and the logged versions of `income` and `infant`. Store these as variables in the dataset, not as separate vectors.**
+
+```{r 3-0-preprocessing}
+library(haven)
+infantmortrality2 <- read_dta("raw-data/infantmortrality2.dta")
+
+infantmortrality2$region_Africadummy<-ifelse(infantmortrality2$region == "Africa", 1, 0)
+AfricaDummy<-infantmortrality2$region_Africadummy
+
+infantmortrality2$region_Europedummy<-ifelse(infantmortrality2$region == "Europe", 1, 0)
+EuropeDummy<-infantmortrality2$region_Europedummy
+
+infantmortrality2$region_Americasdummy<-ifelse(infantmortrality2$region == "Americas", 1, 0)
+AmericasDummy<-infantmortrality2$region_Americasdummy
+
+infantmortrality2$region_Asiadummy<-ifelse(infantmortrality2$region == "Asia", 1,  0)
+AsiaDummy<-infantmortrality2$region_Asiadummy
+
+infantmortrality2$incomelog=log(infantmortrality2$income)
+logincome<-infantmortrality2$incomelog
+
+infantmortrality2$infantlog=log(infantmortrality2$infant)
+loginfant<-infantmortrality2$infantlog
+
+oil<-infantmortrality2$oil
+head(infantmortrality2)
+
+```
+
+**3.0 Feedback**
+
+- You crated 4 dummy variables but you only need k-1 variables (The first region will be indicated by all others beeing 0(it is your base class))
+- You did not use the forth dummy variable in your linear model. Well done!
+
+
+**3.1 Regress `loginfant` (DV) on `logincome` and control for the region of the world (use Africa as reference) and whether countries are oil-exporting or not.**
+
+```{r 3-1-Regression-Model}
+model1<- lm(loginfant~logincome + AmericasDummy + EuropeDummy + AsiaDummy + oil, data = infantmortrality2)
+summary(model1)
+```
+
+**3.1 Feedback**
+
+- The model is right
+
+
+**3.2 Calculate expected values of `loginfant` in European countries for mean levels of `logincome` and the median of oil export in Europe. Do so by following simulation steps 1 to 5 or just use the `sim_function` from Part 2. Describe this result in one or two short sentences (do not forget to state the uncertainty of your results!)**
+
+```{r 3-2}
+# Covariate values
+mean_logincome_europe <- mean(infantmortrality2$incomelog [infantmortrality2$region_Europedummy == 1])
+
+
+median_oil_europe <- median(infantmortrality2$oil[infantmortrality2$region_Europedummy == 1])
+median_oil_europe
+
+# Simulate with function
+sim_europe <- sim_function(model1, scenario =
+cbind(1, mean_logincome_europe, 0, 0, 1, median_oil_europe))
+
+EV_sim_Europe_oil<-quants_mean_fun(sim_europe)
+EV_sim_Europe_oil
+```
+
+Answer: By using the simulation method we can see that the expected value of loginfant in European countries for mean levels of logincome and the median of oil export in Europe is around 3.16 And this value is located in the 95% confidence interval which ranges between 2.78 and 3.16.
+
+**3.2 Feedback**
+
+- You created the mean and median values the right way and created the right scenario.
+- The Results and interpretation are correct
+
+
+**3.3 Calculate first differences in `loginfant` for oil vs. non oil exporting African countries (holding `logincome` at its mean). Do so by following simulation steps 1 to 5 or just use the \texttt{sim\_function} from Part 2. Describe your results in one or two short sentences.**
+
+```{r 3-3}
+mean_logincome_af<-mean(infantmortrality2$incomelog [infantmortrality2$region_Africadummy == 1])
+X_oil <- cbind(1, mean_logincome_af, 0, 0, 0, 1)
+X_non_oil <- cbind(1, mean_logincome_af, 0, 0, 0, 0 )
+
+X_scenario <- as.matrix(rbind(X_oil, X_non_oil))
+
+EV_oil <- sim_function(lm_obj = model1, nsim =1000, scenario = X_oil)
+EV_non_oil <- sim_function(lm_obj = model1, nsim =1000, scenario = X_non_oil)
+EV_combined <- sim_function(lm_obj = model1, nsim =1000, scenario = X_scenario)
+
+#First difference
+fd_africa<- EV_combined[,1] - EV_combined[,2]
+hist(fd_africa, main = "",
+las = 1,
+col = viridis(4)[3],
+border = "white",
+xlab = "First Differences for oil vs. non oil exporting African countries
+(With ’logincome’ at its mean.)"
+)
+# Get mean amd quantiles.
+quants_fd_africa <- apply(as.matrix(fd_africa), 2, quants_mean_fun)
+# Add the lines to the plot
+abline(v = quants_fd_africa, lty = 2, col = viridis(4)[4])
+
+
+```
+Answer:We can see how big the difference is in loginfant for oil vs. non oil exporting African countries, when holding logincome at its mean. The mean of the first differences is at around 0.6. We can conclude that ‘loginfant’ is higher in oil-exporting African countries
+
+**3.3 Feedback**
+
+- You created the right scenarios for your simulation and run it correctly. The plot shows a nice distribution around the point estimate. The result is s conclusive.
+
+**3.4 Rerun the regression, this time without the region dummies.**
+
+```{r 3-4-Rerunning-the-Regression}
+model2<- lm(loginfant ~ logincome + oil, data = infantmortrality2)
+summary(model2)
+```
+
+**3.4 Feedback**
+
+- This is the right model without the regions and with the logged features.
+
+
+**3.5 Calculate and plot the effect of `logincome` on `loginfant` for oil exporting countries for an interesting range of values of `logincome`. Show and discuss the estimation uncertainty of this quantity of interest.**
+
+```{r 3-5}
+login <- seq(4.5, 8.5, 0.1)
+X_effect <- cbind(1, login, 1)
+#expected values
+EV_effect <- sim_function(lm_obj = model2, nsim = 1000, scenario = X_effect)
+#quantiles and mean
+quants_range_oil <- apply(EV_effect, 2, quants_mean_fun)
+# Plot
+plot(
+login,
+quants_range_oil[2,],
+pch = 19,
+cex = 0.3,
+bty = "n",
+las = 1,
+ylim = c(0, 10),
+xlim = c(4, 9),
+ylab = "logInfant",
+main = "EV of Loginfant(Oil Exporting Countries) on Sequence of LogIncome",
+xlab = "Log Income per Capita",
+type = "n"
+)
+# Let’s add our actual observations.
+points(infantmortrality2$incomelog[infantmortrality2$oil == 1],
+infantmortrality2$infantlog[infantmortrality2$oil == 1],
+pch = 19,
+col = adjustcolor(viridis(3)[1], alpha = 0.5))
+# Now we add the lines.
+lines(login, quants_range_oil[3,],
+col = viridis(3)[2])
+# Let’s add those confidence intervals.
+lines(login, quants_range_oil[1,], lty = "dashed", col = viridis(4)[2])
+lines(login, quants_range_oil[2,], lty = "dashed", col = viridis(4)[2])
+
+```
+
+Answer:As our quantity of interest, we choose the range from 4.5 to 8.5, as that approximately is where the values for our simulations are located. The estimation uncertainty can be seen in the confidence intervals, the dotted lines in the graph. We see that their deviation from the mean is fairly constant throughout the chosen range. We can also see that most of the simulated data points are outside of the confidence intervals, but as we display the effect over a range of values, this is perfectly fine and just shows us the mean expected effect
+at a certain point of the range of values.
+
+**3.5 Feedback**
+
+- Please use the the min and max values for your scenario sequence. You used "seq(4.5, 8.5, 0.1)". Pease use "seq( min(x), max(x), length.out = 1000)"
+- Please add the scenario of a non oil country in your graph (This would be a new different line in the graph)
+- Please add to the label the following: "Logged Infant Mortality Rate per 1000 life births". You're labels are not meaningfull.
+- The interpretation is right.
+
+**3.6 A journalist working for "The Economist" has heard about your fascinating work and is interested in reporting your results in an article. She approaches you and asks you to provide her with a plot that is easy to understand of how _income in dollars_ affects _infant mortality rates_ in _non-oil exporting countries_ including any uncertainty. Specifically, she asks you to use the _original scales_ of the variables and _not the logged scales_ because her readership would have difficulties in interpreting the graph. Furthermore, she wants that your plot includes all uncertainty (estimation uncertainty and fundamental uncertainty). Generate this plot using the information from your regression of `loginfant` on `logincome` controlling for oil export (i.e. do not run a different regression model but use the model from the chunk "Rerunning the Regression").**
+
+```{r 3-6}
+X_3 <- cbind(1, login, 0)
+#expected values
+EV_3 <- sim_function(lm_obj = model2, nsim = 1000, scenario = X_3)
+sigma_est <- sqrt(sum(residuals(model2)^2) / (nrow(infantmortrality2) - length(coef(model2))))
+# MN: nsim was never defined, therefore, the following line did not run.
+nsim <- 1000
+Y_hat <- EV_3 + rnorm(nsim, 0, sigma_est)
+#quantiles and mean
+Y_quants_3 <- apply(Y_hat, 2, quants_mean_fun)
+# Plot
+plot(
+infantmortrality2$income,
+infantmortrality2$infant,
+bty = "n",
+las = 1,
+pch = 19,
+col = viridis(2)[1],
+ylim = c(0, 700),
+ylab = "Infant mortality rates per 1000 live births",
+main = "How income affects infant mortality rates in non-oil exporting countries",
+xlab = "Income in U.S. dollars",
+type = "n"
+)
+
+# Let’s add our actual observations.
+points(infantmortrality2$income,
+infantmortrality2$infant,
+pch = 19,
+col = adjustcolor(viridis(3)[1], alpha = 0.5))
+lines(exp(login), exp(Y_quants_3[2, ]),
+col = viridis(3)[2])
+lines(exp(login), exp(Y_quants_3[1, ]),
+col = viridis(3)[3])
+lines(exp(login), exp(Y_quants_3[3, ]),
+col = viridis(3)[3])
+```
+
+**3.6 Feedback**
+
+- You have two different scenarios (with and without oil) Eah of these scenarios have different expected value lines and each two lines for the confidence interval. You have three lines. That makes no sense.  
+- You have a nice start to include uncertainty, but did not included it. 

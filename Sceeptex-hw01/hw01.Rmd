@@ -1,0 +1,246 @@
+---
+title: "Quantitative Methods in Political Science - Homework 1"
+author: "Tobias Fechner (and percentages)"
+date: "Due: September 21, 2021"
+# output:
+#   html_notebook:
+#     toc: no
+#   pdf_document: 
+#     toc: yes
+#   html_document:
+#     toc: no
+
+# Interactive Tutorial
+output:
+  learnr::tutorial:
+    css: css/lab.css
+runtime: shiny_prerendered
+---
+
+```{r setup, include=FALSE}
+# The first line sets an option for the final document that can be produced from
+# the .Rmd file. Don't worry about it.
+knitr::opts_chunk$set(echo = TRUE)
+
+# The next bit (lines 22-43) is quite powerful and useful.
+# First you define which packages you need for your analysis and assign it to
+# the p_needed object.
+p_needed <- c("foreign", "viridis", "here", "styler", "ggplot2")
+
+# Now you check which packages are already installed on your computer.
+# The function installed.packages() returns a vector with all the installed
+# packages.
+packages <- rownames(installed.packages())
+
+# Then you check which of the packages you need are not installed on your
+# computer yet. Essentially you compare the vector p_needed with the vector
+# packages. The result of this comparison is assigned to p_to_install.
+p_to_install <- p_needed[!(p_needed %in% packages)]
+
+# If at least one element is in p_to_install you then install those missing
+# packages.
+if (length(p_to_install) > 0) {
+  install.packages(p_to_install)
+}
+
+# Now that all packages are installed on the computer, you can load them for
+# this project. Additionally the expression returns whether the packages were
+# successfully loaded.
+sapply(p_needed, require, character.only = TRUE)
+```
+
+---
+
+## Load the data set into R.
+
+For this homework you will work with a data set on US Presidential Elections (`raw-data/uspresidentialelections.dta`). Since the data set comes in the `.dta` STATA format, you need to use the `foreign` library to load it into your environment. The following code chunk contains everything you need to successfully load the data into your environment.
+
+```{r load-the-data}
+library(foreign)
+library(here)
+
+# here() tells R to start looking for files in the project folder where .Rproj is
+# Read the uspresidentialelections.dta file from the raw-data folder.
+us_pres_data <- read.dta(here("raw-data/uspresidentialelections.dta"))
+```
+
+
+
+Now you have the object `us_pres_data` in your environment. It is your turn now to explore the data set and produce some interesting plots.
+
+## Describe the data set.
+
+- What variables does it contain?
+- How many observations are there?
+- What time span does it cover?
+
+Use the following code chunk to write code and explore the data. Please then write up your answers to the three questions after the code chunk.
+
+```{r data-exploration}
+# first rows
+head(us_pres_data)
+
+```
+```{r data-exploration2}
+# number of rows 
+nrow(us_pres_data)
+# number of columns 
+ncol(us_pres_data)
+
+```
+```{r data-exploration3}
+#timespan
+min(us_pres_data$year)
+max(us_pres_data$year)
+```
+
+The data set contains the following variables: 
+
+* year
+* vote
+* party
+* growth
+* incumbent
+
+There are *15* observations in the data set.
+
+It covers a time span from 1948 to 2004
+
+## Measures of central tendency and variability.
+
+Compute measures of central tendency and variability of the variables `vote` and `growth` using the following code chunk. 
+Use the numerical measures of central tendency and variability discussed in the lecture. 
+
+```{r Data Exploration}
+Modes <- function(x) {
+  ux <- unique(x)
+  tab <- tabulate(match(x, ux))
+  ux[tab == max(tab)]
+}
+```
+
+```{r Measures-of-central-tendency-and-variability - vote}
+print("Vote analytics:")
+#Mode(us_pres_data$vote)
+#median(us_pres_data$vote)
+#mean(us_pres_data$vote)
+summary(us_pres_data$vote)
+var(us_pres_data$vote)
+sd(us_pres_data$vote)
+range(us_pres_data$vote)
+IQR(us_pres_data$vote)
+```
+
+```{r Measures-of-central-tendency-and-variability - growth}
+print("Groth analytics:")
+#Mode(us_pres_data$growth)
+#median(us_pres_data$vote)
+#mean(us_pres_data$vote)
+summary(us_pres_data$growth)
+var(us_pres_data$growth)
+sd(us_pres_data$growth)
+range(us_pres_data$growth)
+IQR(us_pres_data$growth)
+```
+
+
+
+
+Describe the results in your own words and fill in the following table. test
+
+The following dataset shows the winning parties in the United States from the year 1948 to 2004. since elections are every 4 years, there are 15 datapoints. For each election, the votes of the party and the president of the winning party were stored. We also see the growth rate of the us economy. 
+
+The voter turnout varies between 44 and 61 million and has an average of 52.46 million. in my opinion, this is very low for a country with a population of over 300 million.In addition, there is a high fluctuation in voter turnout.
+
+The growth rate is also very exciting. The average growth rate in the USA is 2.4% and fluctuates between -3.5 and 6%. At -3.5%, it' s almost possible to talk about a recession, whereas 6% is a strong growth rate. So there are big differences here in the votes as well as in the growth rate.
+
+
+|       Measure      | `vote` | `growth` |
+|:-------------------|:------:|:--------:|
+| Mode               | 52.37       |3.579          |
+| Median             | 51.23        |2.690          |
+| Mean               | 52.46          |2.448          |
+| Variance           | 31.20263       |7.07272          |
+| Standard Deviation | 5.585932       |2.659459          |
+| Range              | 44.595-61.789       | -3.597-5.914          |
+| IQR                | 6.977999 |          |3.442
+
+Plot the distribution of both variables using a histogram and a density plot. 
+Make sure to make your plots as nice-looking as possible. Especially, include a title and label the axes.
+
+Use the following code chunk to produce all four plots.
+
+```{r Scatter Plot}
+ggplot(us_pres_data, aes(x=year, y=vote, color=party)) + geom_point() + ggtitle("votes received every 4 years") + xlab("Year") + ylab("Votes in Million")
+  
+```
+
+    
+```{r Plotting-distributions votes}
+library(viridis)
+
+
+
+# Histogram for the variable vote
+hist(us_pres_data$vote,
+     bty = "n",
+     las = 1,
+     border = "white",
+     col = viridis(1),
+     main = "Votes needed to win the election",
+     xlab='Votes in million'
+     )
+
+# Density plot for the variable vote
+plot(density(us_pres_data$vote),
+     bty = "n",
+     las = 1,
+     col = viridis(1),
+     lwd = 2,
+     main = "Density plot of needed votes to win the election",
+     xlab='Votes in million'
+     )
+```
+
+```{r Plotting-distributions growth}
+# Histogram for the variable growth
+hist(us_pres_data$growth,
+     bty = "n",
+     las = 1,
+     border = "white",
+     col = viridis(1),
+     main = "Development of the economy",
+     xlab='Growth or decline in %'
+     )
+
+# Density plot for the variable growth
+
+plot(density(us_pres_data$growth),
+     bty = "n",
+     las = 1,
+     col = viridis(1),
+     lwd = 2,
+     main = "Density plot of the development of the economy",
+     xlab='Growth or decline in %'
+     )
+```
+
+## "It's the economy, stupid!"
+
+During the presidential campaign in 1992, Bill Clinton's campaign coined the phrase "It's the economy, stupid!" Let's investigate the relationship between the economy and electoral success. Generate a nice-looking scatterplot of economic growth and vote share. Use the following code chunk to produce the scatterplot.
+
+```{r A-nice-scatterplot}
+ggplot(us_pres_data, aes(x=growth, y=vote, color=party)) + geom_point() + ggtitle("votes received every 4 years") + xlab("Year") + ylab("Votes in Million")
+  
+```
+
+Describe the pattern that you see in your own words.
+
+In the plot, I see a correlation between the number of voters and the growth of the economy. The better the economy is, the more people go to the polls. But that doesn't mean there is a causal relationship between these two variables. In this data set, we can only see the winning party. So there could be a general decline in the number of voter base. Moreover, it is not clear under what circumstances these parties won or how many people voted a third party. 
+
+## Styling your code
+
+Once you are done with writing the code, may be a good idea to look over it and make sure it is well-formatted, readable, and commented out. While comments is something you would do when writing a code, little styling details such as extra spaces and line breaks may be hard to keep track of. Luckily, we have a package that allows us to format the code to follow a particular style very quickly. `styler`package formats the code you wrote to follow the guide we recommended you in the lab: <https://style.tidyverse.org/>. 
+
+We have already installed this package in our `setup` chunk, so now you can make use of it. The easiest way to do this would be with a so-called addin. Look for an Addin button in Rstudio and select *Style active file*. You can also select a few lines of code within a chunk and *Style the selection* to see the difference to your code better. 
+

@@ -1,0 +1,559 @@
+---
+title: "Quantitative Methods in Political Science - Homework 9"
+author: 
+  - "Tobias Fechner (50%), Simran Suresh Bhurat (50%)"
+date: "Due: November 30, 2021"
+output:
+  pdf_document:
+    toc: yes
+    latex_engine: xelatex
+  html_document:
+    toc: no
+bibliography: citations.bib # this adds a bibliography file from the repo
+biblio-style: apsr # this selects the style 
+---
+
+```{r setup, include=FALSE}
+# The first line sets an option for the final document that can be produced from
+# the .Rmd file. Don't worry about it.
+knitr::opts_chunk$set(echo = TRUE)
+
+# The next bit (lines 22-43) is quite powerful and useful. 
+# First you define which packages you need for your analysis and assign it to 
+# the p_needed object. 
+p_needed <-
+  c("viridis", "stargazer", "MASS", "optimx", "haven", "separationplot", "dplyr")
+
+# Now you check which packages are already installed on your computer.
+# The function installed.packages() returns a vector with all the installed 
+# packages.
+packages <- rownames(installed.packages())
+# Then you check which of the packages you need are not installed on your 
+# computer yet. Essentially you compare the vector p_needed with the vector
+# packages. The result of this comparison is assigned to p_to_install.
+p_to_install <- p_needed[!(p_needed %in% packages)]
+# If at least one element is in p_to_install you then install those missing
+# packages.
+if (length(p_to_install) > 0) {
+  install.packages(p_to_install)
+}
+# Now that all packages are installed on the computer, you can load them for
+# this project. Additionally the expression returns whether the packages were
+# successfully loaded.
+sapply(p_needed, require, character.only = TRUE)
+
+# This is an option for stargazer tables
+# It automatically adapts the output to html or latex,
+# depending on whether we want a html or pdf file
+stargazer_opt <- ifelse(knitr::is_latex_output(), "latex", "html")
+```
+
+-   *Please try to answer the questions with **short** but very **precise** statements. However, do not hide behind seemingly fancy jargon.*
+-   *If you do not have any special reason, please do not load additional packages to solve this homework assignment. If you nevertheless do so, please indicate why you think this is necessary and add the package to the `p_needed` vector in the setup chunk.*
+-   *In addition to the `Rmd`, please make sure that in the repo, there is a PDF knitted from the latest version of your code. The automated check for reproducibility on Github will run only when you include the word "final" into the commit message.*
+-   *This time, we will ask you to start paying special attention to editing and formatting (this will be useful for your Data essay), so you start to use chunk options. You are welcome to have a look at lab code for examples of using chunk options or to consult [this page](https://yihui.org/knitr/options/).*
+
+```{=tex}
+\thispagestyle{empty}
+\newpage
+```
+
+## Part 1: Logit and Probit
+
+*Why do logit and probit coefficient estimates differ?*
+
+Answer:
+
+The logit model uses the cummulative distribution function of the logistic distribution.
+The probit model uses cumulative distribution function of the standard normal distribution. 
+These are both function have a y range from zero to one. The difference is the slope at the inflection point and the change in the slope around the inflection point. 
+
+![logit and probit](images/probitVsLogit.jpg)
+
+
+
+*How does this difference reflect on your approach to simulation from logit and probit models? Explain the differences and adjust the R code for probit (you don't need to evaluate it).*
+
+Answer: Both logit and probit models yield similar inferences. Probit models can be generalized for non-constant error variances. The predicted values differ between these models. The slope at inflection point of the logit model and the model fit are different from that of a probit model as shown below.
+
+![logit and probit](images/logitVsProbitVisualization.png)
+
+```{r, eval=FALSE}
+
+# simulation for logit 
+m1 <- glm(Y ~ X, family = binomial(link = "logit"))
+S <- mvrnorm(1000, coef(m1), vcov(m1))
+Xbeta <- S %*% t(cbind(1, c(-3, 3)))
+p_sim <- plogis(Xbeta)
+# predicted values 
+pvs <- apply(p_sim, MARGIN = c(1, 2), FUN = rbinom, n = 1, size = 1)
+
+# simulation for probit  
+m1 <- glm(Y ~ X, family = binomial(link = "probit"))
+
+S <- mvrnorm(1000, coef(m1), vcov(m1))
+Xbeta <- S %*% t(cbind(1, c(-3, 3)))
+p_sim <- plogis(Xbeta)
+# predicted values 
+pvs <- apply(p_sim, MARGIN = c(1, 2), FUN = rbinom, n = 1, size = 1)
+```
+
+
+
+## Part 2: MLE
+
+*Consider a binary variable $y_i \, \sim \, Bernoulli(\pi_i)$ with $\pi_i = P(y_i = 1) = E(y_i) = g(\beta_0 + \beta_1 X_i)$. Write down the density for one realization and derive the likelihood $\mathcal{L}$ and log-likelihood $\ell$ for a logit model with one covariate $X$: $\mathcal{L}(\beta|X,y)$ and $\ell(\beta|X,y)$). No `R` code is needed here.*
+
+Answer:
+
+```{r pressure, echo=FALSE, fig.cap="A caption", out.width = '100%'}
+knitr::include_graphics("images/Capture.png")
+
+```
+## Part 3: Replication, replication - Fearon and Laitin (2003)
+
+> Fearon, James D., and David D. Laitin. 2003. "Ethnicity, Insurgency, and Civil War." *American Political Science Review* 97 (1): 75-90.
+
+The data set `fearon.dta` contains most of the data used in [@fearon_laitin_2003]. You can find a more detailed variable description in the `fearon_laitin_codebook.pdf`.
+
+*3.1. Write down the full model equation (i.e., both the systematic and the stochastic components) for Model 1 from the table on page 84 in the original paper.*
+
+*Tip: You can split long equations with `aligned` environment as follows:*
+
+
+
+$$
+\begin{aligned}A &= X + Y + Z +  
+\\&\quad M + N + O\end{aligned}
+$$
+*Stocastic Component*
+
+$$
+civilwar_i ∼ N(civilwar_i|µ_i, σ^2)  
+$$
+*Systematic Component*
+$$
+\begin{aligned}µ_i = X_iβ &= β_0(constant) + β_1 * priorwar + β_2 * percapitaincome + β_3 * logPopulation +
+\\&\quad β_4 logMountain + β_5 * nonContiguous + β_6 * oil+ β_7 * newState+ β_{8} * instability + 
+\\&\quad β_{9} * democracy + β_{10} * ethnicfrac+ β_{11} * relifrac + β_{14} * democracy2 + β_{15} * anocracy\end{aligned}
+$$
+*3.2 Replicate the models 1-3 presented by the table on page 84 in the original paper. Present your results in a nice-looking table (i.e., add a table title as well as meaningful DV and IVs names). Your estimates should be similar to the ones reported. They will not be exactly the same since the data set published for replication purposes does not exactly match the data set used in the article.*
+
+*Tip: You can put multiple models in a table with `stargazer` simply by writing `stargazer(m1, m2, m3)`. See [here](https://cran.r-project.org/web/packages/stargazer/vignettes/stargazer.pdf) for more details and examples with `stargazer` package.*
+
+```{r 3-2}
+
+fearon <- read_dta("raw-data/fearon.dta")
+df <- as.data.frame(fearon)
+
+head(df)
+```
+```{r}
+names(df)
+```
+
+
+```{r}
+# stargazer(m1, m2, m3)
+m1 <- glm(civilwar ~priorwar + gdp_lagged + log_population + log_mountain + noncontiguous + oil + newstate + instability + democracy1 + ethnicfrac + relifrac,
+          data = df, 
+          family = binomial(link = "logit"))
+
+m2 <- glm( ethnicwar ~  priorwar +  gdp_lagged+  log_population +  log_mountain +  noncontiguous +  oil +  newstate +  instability +  democracy1 +  ethnicfrac +  relifrac,
+          data = df, 
+          family = binomial(link = "logit"))
+
+m3 <- glm( civilwar ~  priorwar +  gdp_lagged+  log_population +  log_mountain +  noncontiguous +  oil +  newstate +  instability +  ethnicfrac +  relifrac +  anocracy +  democracy2,
+          data = df, 
+          family = binomial(link = "logit"))
+
+
+
+```
+
+```{r, results = "asis"}
+stargazer(m1, m2, m3,
+          title="Logit analyses of the predicting war",
+          type = stargazer_opt,
+          rownames=TRUE,
+          dep.var.labels=c("Civil War","Ethnic War", "Civil War"),
+          covariate.labels=c("Prior War", "Income per capita", "Population (log)", "Percent of mountains (log)", "Noncontigous", "Oil state", "New state", "Instability", "Democrarcy Polity index", "Ethnic fraction", "Religious fraction", "Anocracy", "Democracy"))
+
+```
+
+Answer: The models represent the paper and are slightly different compared to the presented ones in the paper. 
+
+*3.3 Make separation plots assessing the model fit and interpret them in up to five sentences .*[^1]
+
+[^1]: *Please read the fantastic article by @greenhill_et_al_2011: The separation plot a new visual method for evaluating the fit of binary models. American Journal of Political Science. Vol.55(4). 991-1002.*
+
+
+
+```{r}
+df <- read_dta("raw-data/fearon.dta")
+df <- as.data.frame(fearon)
+
+df_ethnicwar <- df
+df_civilwar <- df
+
+df_ethnicwar <- df_ethnicwar %>% select(-civilwar)
+print(length(m2$fitted))
+
+df_ethnicwar <- na.omit(df_ethnicwar)
+print(length(df_ethnicwar$ethnicwar))
+print("")
+
+df_civilwar <- df_civilwar %>% select(-ethnicwar)
+print(length(m1$fitted))
+print(length(m3$fitted))
+df_civilwar <- na.omit(df_civilwar)
+print(length(df_civilwar$civilwar))
+
+
+
+```
+
+
+```{r 3-3}
+# Model 1
+
+separationplot(pred = m1$fitted,
+               actual = df_civilwar$civilwar,
+               line = TRUE,
+               heading = "Separation Plot for Model 1",
+               show.expected = T,
+               col0 = viridis(2, alpha = 0.5)[2],
+               col1 = viridis(2, alpha = 0.5)[1],
+               lwd2 = 2,
+               height = 2,
+               newplot = F)
+
+# Model 2
+separationplot(pred = m2$fitted, 
+               actual = df_ethnicwar$ethnicwar,
+               line = TRUE,
+               heading = "Separation Plot for Model 2", 
+               show.expected = T,
+               col0 = viridis(2, alpha = 0.5)[2],
+               col1 = viridis(2, alpha = 0.5)[1],
+               lwd2 = 2,
+               height = 2,
+               newplot = F)
+
+# Model 3
+
+separationplot(pred = m3$fitted,
+               actual = df_civilwar$civilwar,
+               line = TRUE,
+               heading = "Separation Plot for Model 3",
+               show.expected = T,
+               col0 = viridis(2, alpha = 0.5)[2],
+               col1 = viridis(2, alpha = 0.5)[1],
+               lwd2 = 2,
+               height = 2,
+               newplot = F)
+```
+
+Answer:
+
+The positive and negative classes are relatively unbalanced. This is indicated by the black dot on the right side. The two classes are separated by the yellow and purple lines. We can see that many red lines are still on the left side and therefore the model makes incorrect predictions. Overall, the predictions of Model 2 are better than those of Models 1 and 3. Model 2 tried to describe the an ethnic war, while Models 1 and 3 tried to predict a civil war. Model 2 appears to have the best fit compared to the other models. 
+
+*3.4 Use Model 1 from Part 3.1 to visualize the effects of GDP per capita and ethnic fractionalization on civil war (using the simulation approach). Interpret the graphs in up to five sentences.*
+
+```{r 3-4 effects of GDP per capita on civil war}
+sim_fun <- function(m1, scenario){
+  beta_hat <- coef(m1)
+  V_hat <- vcov(m1)
+  nsim <- 1000
+  S <- mvrnorm(n = nsim,
+               mu = beta_hat,
+               Sigma = V_hat)
+  Xbeta <- S %*% t(scenario)
+  p_sim <- exp(Xbeta) / (1 + exp(Xbeta))
+  return (p_sim)
+}
+
+#  effects of GDP per capita on civil war
+scenario1_range <- 
+  seq(min(df$gdp_lagged, na.rm = T), max(df$gdp_lagged, na.rm = T), length.out = 100)
+
+# scenario with mean/median
+scenario1 <- 
+  cbind(1,                                    # The Intercept
+        median(df$priorwar, na.rm = T),       # The median of priorwar
+        scenario1_range,                     # Our sequence for gdp_lagged
+        mean(df$log_population, na.rm = T),   # The mean of log_population
+        mean(df$log_mountain, na.rm = T),     # The mean of  log_mountain
+        median(df$noncontiguous, na.rm = T),  # The median of noncontiguous
+        median(df$oil, na.rm = T),            # The median of oil
+        median(df$newstate, na.rm = T),       # The median of newstate
+        median(df$instability, na.rm = T),    # The median of instability
+        mean(df$democracy1, na.rm = T),       # The mean of democracy1
+        mean(df$ethnicfrac, na.rm = T),       # The mean of ethnicfrac
+        mean(df$relifrac, na.rm = T)          # The mean of relifrac
+        )
+
+scenario1_sim=sim_fun(m1, scenario1)
+
+# get the mean and estimation uncertainty
+scenario1_mean <- apply(scenario1_sim, 2, mean)
+scenario1_qu <- t(apply(scenario1_sim, 2, quantile, prob = c(0.025, 0.975)))
+
+# start with an empty plot
+plot(x = scenario1_range,
+     y = scenario1_mean,
+     type = "n",
+     ylim = range(pretty(scenario1_mean)),
+     xlim = range(pretty(scenario1_range)),
+     ylab = "Probability of Civil War onset",
+     xlab = "GDP per capita (per 1000)",
+     bty = "n",
+     las = 1)
+
+# draw polygon
+polygon(x = c(rev(scenario1_range), scenario1_range),
+        y = c(rev(scenario1_qu[,2]), scenario1_qu[,1]),
+        col = viridis(1, 0.4),
+        border = NA)
+
+# add lines
+lines(x = scenario1_range,
+      y = scenario1_mean, lwd = 2)
+lines(x = scenario1_range,
+      y = scenario1_qu[, 1],
+      lty = "dashed",
+      col = viridis(1))
+lines(x = scenario1_range,
+      y = scenario1_qu[, 2],
+      lty = "dashed",
+      col = viridis(1))
+
+# Adding ticks of actual x-values.
+axis(1,
+     at = df$gdp_lagged,
+     col.ticks = viridis(1),
+     labels = FALSE,
+     tck = 0.02)
+
+#par(mar = c(6.5, 6.5, 0.5, 0.5), mgp = c(50, 1, 0))
+
+par(mar=c(105,107,104,102))
+
+par(oma=c(400,400,400,400))
+
+```
+```{r effects of ethnic fractionalization on civil war}
+# effects of ethnic fractionalization on civil war
+
+scenario2_range <-
+  seq(min(df$ethnicfrac, na.rm = T),
+      max(df$ethnicfrac, na.rm = T),
+      length.out = 100)
+# Creating the scenario holding all of them constant at their mean/median
+
+scenario2 <-
+  cbind(1,                                    # The Intercept
+        median(df$priorwar, na.rm = T),       # The median of priorwar
+        mean(df$gdp_lagged, na.rm = T),       # The mean of gdp_lagged
+        mean(df$log_population, na.rm = T),   # The mean of log_population
+        mean(df$log_mountain, na.rm = T),     # The mean of  log_mountain
+        median(df$noncontiguous, na.rm = T),  # The median of noncontiguous
+        median(df$oil, na.rm = T),            # The median of oil
+        median(df$newstate, na.rm = T),       # The median of newstate
+        median(df$instability, na.rm = T),    # The median of instability
+        mean(df$democracy1, na.rm = T),       # The mean of democracy1
+        scenario2_range,                    # Our sequence for ethnicfrac
+        mean(df$relifrac, na.rm = T)          # The mean of relifrac
+        )
+scenario2_sim=sim_fun(m1,scenario2)
+
+# get the mean and estimation uncertainty
+scenario2_mean <- apply(scenario2_sim, 2, mean)
+scenario2_qu <- t(apply(scenario2_sim, 2, quantile, prob = c(0.025, 0.975)))
+
+# start with an empty plot
+plot(x = scenario2_range,
+     y = scenario2_mean,
+     type = "n",
+     ylim = range(pretty(scenario2_mean)),
+     xlim = range(pretty(scenario2_range)),
+     ylab = "Probability of Civil War onset",
+     xlab = "Ethnic fraction",
+     bty = "n",
+     las = 1)
+
+
+polygon(x = c(rev(scenario2_range), scenario2_range),
+        y = c(rev(scenario2_qu[,2]), scenario2_qu[,1]),
+        col = viridis(7, 0.4),
+        border = NA)
+
+# add lines
+lines(x = scenario2_range,
+      y = scenario2_mean, lwd = 2)
+lines(x = scenario2_range,
+      y = scenario2_qu[, 1],
+      lty = "dashed",
+      col = viridis(1))
+lines(x = scenario2_range,
+      y = scenario2_qu[, 2],
+      lty = "dashed",
+      col = viridis(1))
+
+
+# Adding ticks of actual x-values.
+axis(1,
+     at = df$ethnicfrac,
+     col.ticks = viridis(7),
+     labels = FALSE,
+     tck = 0.02)
+
+par(mar=c(105,107,104,102))#
+
+
+```
+```{r}
+scenario2_range <-
+  seq(min(df$ethnicfrac, na.rm = T),
+      max(df$ethnicfrac, na.rm = T),
+      length.out = 100)
+# Creating the scenario holding all of them constant at their mean/median
+
+scenario2 <-
+  cbind(1,                                    # The Intercept
+        median(df$priorwar, na.rm = T),       # The median of priorwar
+        mean(df$gdp_lagged, na.rm = T),       # The mean of gdp_lagged
+        mean(df$log_population, na.rm = T),   # The mean of log_population
+        mean(df$log_mountain, na.rm = T),     # The mean of  log_mountain
+        median(df$noncontiguous, na.rm = T),  # The median of noncontiguous
+        median(df$oil, na.rm = T),            # The median of oil
+        median(df$newstate, na.rm = T),       # The median of newstate
+        median(df$instability, na.rm = T),    # The median of instability
+        mean(df$democracy1, na.rm = T),       # The mean of democracy1
+        scenario2_range,                    # Our sequence for ethnicfrac
+        mean(df$relifrac, na.rm = T)          # The mean of relifrac
+        )
+scenario2_sim=sim_fun(m1,scenario2)
+
+# get the mean and estimation uncertainty
+scenario2_mean <- apply(scenario2_sim, 2, mean)
+scenario2_qu <- t(apply(scenario2_sim, 2, quantile, prob = c(0.025, 0.975)))
+
+# start with an empty plot
+plot(x = scenario2_range,
+     y = scenario2_mean,
+     ylim = c(0, 0.02),
+     type = "n",
+     xlim = range(pretty(scenario2_range)),
+     ylab = "Probability of Civil War onset",
+     xlab = "Ethnic fraction",
+     bty = "n",
+     las = 1,
+     )
+
+
+polygon(x = c(rev(scenario2_range), scenario2_range),
+        y = c(rev(scenario2_qu[,2]), scenario2_qu[,1]),
+        col = viridis(7, 0.4),
+        border = NA)
+
+# add lines
+lines(x = scenario2_range,
+      y = scenario2_mean, lwd = 2)
+lines(x = scenario2_range,
+      y = scenario2_qu[, 1],
+      lty = "dashed",
+      col = viridis(1))
+lines(x = scenario2_range,
+      y = scenario2_qu[, 2],
+      lty = "dashed",
+      col = viridis(1))
+
+
+
+
+# Adding ticks of actual x-values.
+axis(1,
+     at = df$ethnicfrac,
+     col.ticks = viridis(7),
+     labels = FALSE,
+     tck = 0.02)
+
+par(mar=c(105,107,104,102))#
+```
+
+Answer:
+
+Both GDP per capita and ethnic share have a small effect on the probability of civil war in model 2. This is because the range of dependent variables for GDP per capita is between 0 and 0.025 and for ethnic share is between 0.0065 and 0.0080. This is quite low. There is a positive correlation for the ethical share and a negative correlation for GDP per capita with increasing independent values. 
+
+
+*3.5 @fearon_laitin_2003 speculate that "[t]he effect of ethnic diversity on the probability of civil war should increase at higher levels of per capita income (a proxy for economic modernization)" (p. 78). Fit a model testing this hypothesis. Make a plot visualizing the effect (using the simulation approach). Do not forget to include estimation uncertainty. Do you find support for Fearon and Laitin's hypothesis?*
+
+```{r 3-5}
+
+df$highgdp = ifelse(df$gdp_lagged >= 3.5, 1, 0)
+
+m4 <- glm(
+  civilwar ~ highgdp + ethnicfrac,
+  data=df,
+  family = binomial(link = logit))
+
+summary(m4)
+
+seq <- seq(min(df$ethnicfrac, na.rm = T), 
+       max(df$ethnicfrac, na.rm = T), 
+       length.out = 100)
+
+# scenario
+scenario_high <- cbind(1, 1, seq)
+scenario <- cbind(1, 0, seq)
+
+# simulation
+library(MASS) 
+S <- mvrnorm(n = 10000, mu = coef(m4), Sigma = vcov(m4))
+Xbeta <- S %*% t(scenario)
+
+p_sim <- (exp(Xbeta))/ (1 + exp(Xbeta))
+
+p_mean <- apply(p_sim, 2, mean)
+p_qu <- t(apply(p_sim, 2, quantile, prob = c(0.025, 0.975)))
+
+# plot
+plot(x = seq,
+     y = p_mean,
+     ylim = c(0,0.05),
+     xlim = range(pretty(seq)),
+     type="n",
+     main = "Predicted Probabilies of Civil War(Y)",
+     ylab = "Probability of Civil War(Y)",
+     xlab = "log mountain (X)",
+     bty = "n",
+     las = 1)
+
+# plot uncertainty with a polygon
+polygon(x = c(rev(seq), seq),
+        y = c(rev(p_qu[,2]), p_qu[,1]),
+        col = viridis(1, 0.5),
+        border = NA)
+
+# and a line
+lines(x = seq,
+      y = p_mean,
+      lwd = 2)
+
+```
+
+Answer: 
+
+\newpage
+
+## R code
+
+<!-- The chunk below will print out the code from all the chunks in the document, even if you chose to hide chunks in the main text with `echo=FALSE` chunk option or `include=FALSE` option. You do not need to put any code in this chunk manually: it will gather code from other chunks automatically. -->
+
+```{r ref.label=knitr::all_labels(), echo=TRUE, eval=FALSE}
+```
+
+\newpage
+
+## References

@@ -1,0 +1,854 @@
+---
+title: "QM 2021 Week 3: Statistical Inference"
+author: "Oliver Rittmann<br>Viktoriia Semenova<br>David Grundmanns"
+date: "September 23 | 27 | 28, 2021"
+output:
+  html_document:
+    toc: yes
+    number_sections: yes
+    toc_float: yes
+    smooth_scroll: yes
+    highlight: tango
+    css: css/lab.css
+  pdf_document:
+    toc: yes
+editor_options: 
+  chunk_output_type: console
+---
+
+---
+
+# Today we will learn {-}
+
+1. How to Construct Confidence Intervals
+    1. Analytically
+    2. Using Simulation
+    3. Using Bootstrapping
+2. What is the idea behind confidence intervals 
+3. How to Estimate Difference in Means 
+
+In other words, our goals are to:
+
++ Really understand what "statistical inference" means
++ Review how we can assess the uncertainty of the inferences we make
++ Learn about simulations, bootstrapping and classical hypothesis testing (and it's only the third session, we are making good progress!)
+
+
+---
+
+```{r setup, include=FALSE}
+# The first line sets an option for the final document that can be produced from
+# the .Rmd file. Don't worry about it.
+knitr::opts_chunk$set(
+  echo = TRUE, # show results
+  collapse = TRUE # not interrupt chunks
+)
+
+# The next bit (lines 50-69) is quite powerful and useful.
+# First you define which packages you need for your analysis and assign it to
+# the p_needed object.
+p_needed <- c(
+  "foreign", # import files
+  "viridis", # color
+  "ggplot2", # plotting
+  "here", # directory
+  "dplyr"
+) # for glimpse command
+
+# Now you check which packages are already installed on your computer.
+# The function installed.packages() returns a vector with all the installed
+# packages.
+packages <- rownames(installed.packages())
+# Then you check which of the packages you need are not installed on your
+# computer yet. Essentially you compare the vector p_needed with the vector
+# packages. The result of this comparison is assigned to p_to_install.
+p_to_install <- p_needed[!(p_needed %in% packages)]
+# If at least one element is in p_to_install you then install those missing
+# packages.
+if (length(p_to_install) > 0) {
+  install.packages(p_to_install)
+}
+# Now that all packages are installed on the computer, you can load them for
+# this project. Additionally the expression returns whether the packages were
+# successfully loaded.
+sapply(p_needed, require, character.only = TRUE)
+
+# set the seed for replicability
+set.seed(2021)
+```
+
+
+With today's repository you downloaded the `.Rmd` script and the two datasets `support.RData` and `polity.dta`. They are in the folder `raw-data`. You can see them in the **Files** window.
+
+# Constructing Confidence Intervals (CIs)
+
+## Theory Refresher 
+
+```{r Inference image, fig.width=2, echo=FALSE, fig.align='center'}
+knitr::include_graphics(here("img/inference.png"))
+```
+
+
+- With *point estimates*, we get the estimate that is correct on average. 
+- An even more useful quantity can be a range of plausible values for an estimate. 
+- Confidence interval is a way to construct an interval that will contain the *true value* in some fixed proportion of *repeated samples*.
+
+
+## Analytical Apporach {.tabset}
+
+In the file `support.RData` you find the policy support measurements from the lecture. We want to calculate the 95% confidence interval for the mean.
+
+First, we need to load the data. This time it's easier because the data is in the `.RData` format, one of the native formats for R. Hence, no extra packages are required:
+
+```{r Load and inspect data, fig.show="hold", out.width="50%"}
+load(file = here("raw-data/support.RData"))
+
+# Let's have a look at the data first.
+
+summary(support)
+
+# summary() shows you the key measures of central tendency and variability.
+```
+
+### Base R {-}
+
+```{r Plot support base}
+# We should also have a look at the distribution, quick but ugly...
+hist(support,
+  main = "Histogram of Support for a New Policy",
+  xlab = "Support for a new policy",
+  col = viridis(1),
+  border = F,
+  las = 1
+)
+```
+
+### ggplot2 {-}
+
+```{r Plot support ggplot}
+ggplot() +
+  geom_histogram(aes(x = support),
+    boundary = 14,
+    binwidth = 1,
+    color = "white",
+    fill = viridis(1)
+  ) +
+  labs(
+    title = "Histogram of Support for a New Policy",
+    x = "Support Value",
+    y = "Frequency"
+  ) +
+  theme_minimal() +
+  scale_x_continuous(breaks = c(seq(11, 17, by = 1)))
+```
+
+## {-}
+
+We can easily calculate the mean support for the new policy in our sample:
+
+```{r}
+mean(support)
+```
+
+Since we only have a sample (i.e., the survey was only conducted once), we cannot confidently infer that the mean support in the population (unknown to us, $\theta$) is the same as in our sample (what we observed, $\hat{\theta}$). That's why we may want to calculate the confidence intervals. 
+
+Let's calculate the analytical 95% CI. We start by calculating the standard error of the estimate of the population mean:
+
+$SE(\hat\theta) = \dfrac{\hat\sigma}{\sqrt{N}}$
+
+$\hat\theta$ = Estimate of population mean 
+
+$\hat\sigma$ = Standard deviation of a sample
+
+$N$ = Number of observations
+
+```{r Standard error}
+support_se <- sd(support) / sqrt(length(support))
+support_se
+```
+
+
+> How will the estimate $SE(\hat\theta)$ change if there were more data points (but standard deviation of the sample were the same)? 
+
+Now we can calculate the analytical 95% CI: $\hat\theta \pm 1.96 \times SE(\hat\theta)$
+
+```{r Analytical CI 95}
+ci_lo <- mean(support) + qnorm(0.025, 0, 1) * support_se # why use qnorm?
+ci_up <- mean(support) + qnorm(0.975, 0, 1) * support_se
+ci_an <- c(ci_lo, ci_up)
+
+ci_an
+```
+
+> What should we change to calculate the 99% confidence intervals? Will this 99% interval be larger or smaller than 95% CI? 
+
+*Tip: you can comment and un-comment multiple lines with `Ctrl + Shift + C` /`Cmd + Shift + C`.*
+
+```{r Analytical CI 99}
+# modify the following line to get 99% CIs
+# mean(support) + qnorm(c(0.025,0.975), 0, 1) * support_se 
+```
+
+### Understanding Confidence Intervals {.tabset}
+
+In the lecture, you have seen a [simulation for the concept of confidence intervals](https://rpsychologist.com/d3/ci/). Let's try to make one ourselves to better grasp the idea behind the interpretation of confidence intervals. 
+
+First, we'll need to decide on the *true* population parameters. We will never know true population parameters in real life, but for the sake of demonstration, let's do this. 
+
+```{r Create population}
+# create a population
+true_mean <- 500
+pop <- rnorm(10000, true_mean, 100)
+```
+
+Now we need to do the sampling part, like we would be doing in real life. We will take a subset of the population and estimate statistics based on that sample. But unlike in real life, we will take samples many times, say 100. 
+
+```{r Repeated sampling, fig.keep='last', collapse=FALSE}
+n_iter <- 100 # we will take 100 samples (but only one in real life)
+estimates <- NULL # empty object for estimates
+confis <- matrix(rep(NA, n_iter * 2), # empty matrix for CIs
+  ncol = 2, # for lower and upper CIs
+  nrow = n_iter
+)
+
+for (i in seq_len(n_iter)) { # for the length of n_iter do:
+  pop_sample <- sample(x = pop, size = 100) # take a sample of 100
+  estimates[i] <- mean(pop_sample) # store its mean
+  se <- sd(pop_sample) / sqrt(length(pop_sample)) # store SE for the sample
+  # confis[i, ] <- mean(pop_sample) + qnorm(c(0.025, 0.975)) * se # store 95% CIs
+  confis[i, ] <- mean(pop_sample) + qnorm(c(0.005, 0.995)) * se # wider intervals
+}
+
+head(estimates)
+head(confis)
+```
+
+#### Base R {-}
+
+```{r Repeated sampling plot base, fig.keep='last'}
+plot(
+  confis,
+  xlim = c(450, 550),
+  ylim = c(1, 100),
+  type = "n",
+  xlab = "",
+  ylab = "",
+  yaxt = "n",
+  bty = "n",
+  main = "Confidence Interval for Mean"
+)
+
+# Let's add our true parameter
+abline(v = true_mean, col = "red") 
+
+for (i in seq_len(n_iter)) {
+  segments(confis[i, 1], i, confis[i, 2], i, col = "azure4")
+  points(estimates[i],
+    i,
+    pch = 19,
+    cex = 0.4,
+    col = "azure4"
+  )
+  # if lower CI is larger than 10 or upper CI smaller than 10
+  if (confis[i, 1] > true_mean | confis[i, 2] < true_mean) {
+    # paint red horizontal lines (since y0 == y1)
+    segments(
+      x0 = confis[i, 1],
+      y0 = i,
+      x1 = confis[i, 2],
+      y1 = i,
+      col = "red"
+    )
+    # add red points
+    points(estimates[i], 
+      i,
+      pch = 19,
+      cex = 0.4,
+      col = "red"
+    )
+  }
+}
+```
+
+#### ggplot2 {-}
+
+```{r Repeated sampling plot ggplot}
+
+# create a dataset from plotting from existing objects
+CIs_data <- data.frame(
+  mean = estimates,
+  confis,
+  n = 1:n_iter
+)
+
+# add a column for color
+# if lower CI > true_mean or upper CI < true_mean, CI missed the true value and
+# is coded as "out"
+# ifelse(condition, value-if-true, value-if-false)
+CIs_data$missed <- ifelse(CIs_data$X1 > true_mean | CIs_data$X2 < true_mean, "Out", "In")
+
+ggplot(data = CIs_data) +
+  geom_pointrange(
+    aes(
+      x = mean, # point value
+      xmin = X1, # lower CI
+      xmax = X2, # upper CI
+      y = n, # y axis - just observation number
+      color = missed
+    ) # color varies by missed variable
+  ) +
+  geom_vline(
+    aes(xintercept = true_mean), # add vertical line at true_mean
+  ) +
+  scale_color_manual(values = c("azure4", "red")) + # set our preferred colors
+  theme_minimal() + # some theme to change the appearance
+  labs(
+    title = "Confidence Interval for Mean",
+    subtitle = "Population mean equals 10",
+    x = "Mean",
+    y = "Sample",
+    color = "Is true population parameter inside the CI?"
+  ) +
+  theme(legend.position = "top") + # switch the legend to the top
+  scale_x_continuous(breaks = c(seq(450, 550, by = 10))) # change values on x-axis
+```
+
+
+## Simulation Approach {.tabset}
+
+Now we turn to the simulation approach. Here we simulate the sampling distribution of the statistic we are interested in and take the empirical quantiles from this simulated distribution. 
+
+The central limit theorem tells us that the *sampling distribution is normally distributed*. We assume that the sample mean is the population mean. The standard error is the standard deviation of this distribution.
+
+First, let's set the number of simulations to 1000.
+
+```{r nsim}
+nsim <- 1000
+```
+
+Now let's take random draws from a distribution with assumed parameters. 
+
+```{r Simulate sampling distribution}
+simsupport <- rnorm(n = nsim, 
+                    mean = mean(support), 
+                    sd = support_se)
+```
+
+
+And now we are plotting the resulting distribution:
+
+```{r Plot simulated distribution}
+hist(
+  x = simsupport,
+  main = "Sampling Distribution of the Sample Mean (via Simulation)",
+  xlab = "Support for Policy",
+  las = 1,
+  col = viridis(2)[2],
+  border = F, # remove the border
+  breaks = 20,
+  freq = FALSE,
+  yaxt = "n",
+  ylab = ""
+)
+
+# Now we will add some extras to the plot:
+# Lines for density.
+
+lines(density(simsupport),
+  col = viridis(2)[1],
+  lwd = 2
+)
+```
+
+Now we can calculate empirical quantiles from the distribution:
+
+```{r Simulated CI}
+ci_sim <- quantile(x = simsupport,
+                   probs =  c(0.025, 0.975))
+
+ci_sim
+```
+
+And let's see if there is a numerical difference between two approaches:
+
+```{r Compare CIs}
+ci_sim - ci_an # should be close to zero!
+```
+
+
+Even better, we can even add the quantiles to the plot.
+
+### Base R {-}
+
+```{r Plot CI simulation base, fig.keep='last'}
+# This is the plot from above.
+hist(simsupport,
+  las = 1,
+  breaks = 20,
+  freq = FALSE,
+  main = "Sampling Distribution of the Sample Mean\n(via Simulation)",
+  xlab = "Support for Policy",
+  col = viridis(4)[1],
+  border = F,
+  yaxt = "n",
+  ylab = ""
+)
+
+
+# Now we will add some extras to the plot:
+# Lines for density.
+
+lines(density(simsupport),
+  col = viridis(4)[2],
+  lwd = 2
+)
+
+# Let's add the analytical CI
+abline(
+  v = ci_sim,
+  col = viridis(4, alpha = 0.75)[3],
+  lwd = 2,
+  lty = 2
+)
+
+# How does the simulated CI compare to the analytical one?
+# Let's have a look at it in the same plot!
+abline(
+  v = ci_an,
+  col = viridis(4, alpha = 0.75)[4],
+  lwd = 2,
+  lty = 2
+)
+
+# And let's add a legend
+legend("topright",
+  bty = "n",
+  col = viridis(4)[3:4],
+  lwd = 2,
+  lty = 2,
+  legend = c(
+    "Analytical 95% CI",
+    "Simulated 95% CI"
+  )
+)
+```
+
+### ggplot2 {-}
+
+```{r Plot CI simulation ggplot}
+# create a dataset
+simsupport_df <- data.frame(simsupport)
+
+ggplot(
+  simsupport_df, # use our dataset
+  aes(x = simsupport)
+) + # put simsupport on x-axis
+  labs(
+    title = "Sampling Distribution of the Sample Mean (via Simulation)",
+    x = "Support for Policy",
+    y = ""
+  ) +
+  geom_histogram(aes(y = ..density..), # add histogram
+    boundary = 14,
+    binwidth = 0.1,
+    fill = viridis(4)[1], # change color
+    color = "white"
+  ) + # make white bin borders
+  geom_density(color = viridis(4)[2]) + # add density
+  geom_vline( # add simulated CIs
+    xintercept = ci_sim,
+    color = viridis(4, alpha = 0.75)[4],
+    linetype = "dashed"
+  ) +
+  geom_vline( # add analytical CIs
+    xintercept = ci_an,
+    color = viridis(4, alpha = 0.75)[3],
+    linetype = "dashed"
+  ) +
+  theme_minimal() + # change appearance
+  annotate("text", # add CIs label
+    x = 15, # where to place label on x axis
+    y = 1.7, # where to place label on y axis
+    label = "Analytical 95% CI",
+    color = viridis(4)[3]
+  ) +
+  annotate("text",
+    x = 15,
+    y = 1.6,
+    label = "Simulated 95% CI",
+    color = viridis(4)[4]
+  ) +
+  theme(
+    axis.text.y = element_blank(),
+    axis.ticks.y = element_blank()
+  )
+```
+
+
+## Bootstrapping Approach {.tabset}
+
+```{r Munchausen, echo=FALSE, fig.align='center'}
+knitr::include_graphics("img/munchausen.jfif")
+```
+
+> If we treat our sample as population, how do we achieve sampling variability with bootstrapping?
+
+To remind you, here is what we need to do when using bootstrapping to generate confidence intervals:
+
+1. Take a bootstrap sample - a random sample taken *with replacement* from the original sample, of the same size as the original sample
+2. Calculate the bootstrap statistic - a statistic such as mean, median, proportion, etc. computed on the bootstrap samples
+3. Repeat steps (1) and (2) many times to create a bootstrap distribution - a distribution of bootstrap statistics
+4. Calculate the bounds of the XX% confidence interval as the middle XX% of the bootstrap distribution
+
+Let's see how we do this in R.
+
+First, we need an empty vector for samples. This is good practice when using a loop, to make the process faster. 
+
+```{r Empty vector}
+bootmeans <- rep(NA, 1000) # repeat "NA" 1000 times, store in object "bootmeans" 
+```
+
+Let's loop over the mean from random samples *with replacement* from the support dataset.
+
+> Does anyone remember what a `for` loop does?
+
+```{r Bootstrapping loop}
+for (i in seq_len(1000)) {
+  bootmeans[i] <- mean(sample(
+    x = support,
+    size = length(support),
+    replace = TRUE # why?
+  )) 
+}
+```
+
+Let's have a look at the results:
+
+### Base R {-}
+
+```{r Plot CI bootstrapped base}
+hist(bootmeans,
+  las = 1,
+  breaks = 20,
+  freq = FALSE,
+  main = "Sampling Distribution of the Sample Mean (via Bootstrap)",
+  xlab = "Support for Policy",
+  col = viridis(4)[1],
+  border = F,
+  yaxt = "n",
+  ylab = ""
+)
+
+# And we add the density curve again.
+
+lines(density(bootmeans),
+  col = viridis(4)[2],
+  lwd = 2
+)
+
+# calculate empirical quantiles from your distribution
+
+ci_boot <- quantile(bootmeans, p = c(0.025, 0.975))
+
+# As above we can plot the CI.
+abline(
+  v = ci_boot,
+  col = viridis(4, alpha = 0.75)[4],
+  lwd = 2,
+  lty = 2
+)
+
+# And we compare it to the analytical solution.
+abline(
+  v = ci_an,
+  col = viridis(4, alpha = 0.75)[3],
+  lwd = 2,
+  lty = 2
+)
+
+# And the legend
+legend("topright",
+  bty = "n",
+  col = viridis(4)[3:4],
+  lwd = 2,
+  lty = 2,
+  legend = c(
+    "Analytical CI",
+    "Bootstrapped CI"
+  )
+)
+```
+
+### ggplot2 {-}
+
+```{r Plot CI bootstrapped ggplot}
+bootmeans_df <- data.frame(bootmeans)
+ci_boot <- quantile(bootmeans, p = c(0.025, 0.975))
+
+ggplot(
+  bootmeans_df,
+  aes(x = bootmeans)
+) +
+  labs(
+    title = "Sampling Distribution of the Sample Mean (via Bootstrapping)",
+    x = "Support for Policy"
+  ) +
+  geom_histogram(aes(y = ..density..),
+    fill = viridis(4)[1],
+    color = "white"
+  ) +
+  geom_density(color = viridis(4)[2]) +
+  theme_minimal() +
+  geom_vline(
+    xintercept = ci_an,
+    color = viridis(4, alpha = 0.75)[3],
+    linetype = "dashed"
+  ) +
+  annotate("text",
+    x = 15,
+    y = 1.7,
+    label = "Analytical 95% CI",
+    color = viridis(4)[3]
+  ) +
+  geom_vline(
+    xintercept = ci_boot,
+    color = viridis(4, alpha = 0.75)[4],
+    linetype = "dashed"
+  ) +
+  annotate("text",
+    x = 15,
+    y = 1.6,
+    label = "Bootstrap 95% CI",
+    color = viridis(4)[4]
+  ) +
+  theme(
+    axis.text.y = element_blank(),
+    axis.ticks.y = element_blank()
+  )
+```
+
+# {-}
+We can also see that the difference between analytical and bootstrap CIs is rather small:
+
+```{r CI comparison}
+ci_boot - ci_an
+```
+
+
+# Beyond Basic Quantities of Interest
+
+What's the point about the simulation and bootstrap approach if we are able to derive CIs analytically? The next example shows that for some quantities of interest, CIs are not easy to derive analytically, but the simulation and bootstrap approaches work just as before.
+
+## Example: Left-Voting Ratios 
+
+In a sample of size 1000 (500 men and 500 women), 55% of men and 65% of women vote left. Calculate the confidence interval for the "left-voting" ratio of men to women using the simulation approach. This is an example from the lecture slides 21-21. 
+
+With simulation approach, we need some values to set up the distribution, so mean and standard error for the Normal distribution, and then we will take draws from a distribution with such parameters. 
+
+The ratio is $\dfrac{0.55}{0.65}$. 
+
+The formula for the standard error for proportions:
+
+$SE(\hat p) = \sqrt{\dfrac{\hat p (1-\hat p)}{n}}$
+
+Let's translate it all into R:
+
+```{r Example I}
+p_hat_men <- 0.55
+p_hat_women <- 0.65
+
+n_men <- 500
+n_women <- 500
+
+# Calculate the standard errors: sqrt(p * (1 - p) / n)
+
+se_men <- sqrt(p_hat_men * (1 - p_hat_men) / n_men)
+se_women <- sqrt(p_hat_women * (1 - p_hat_women) / n_women)
+
+
+# Draw a sample
+nsim <- 1000
+
+p_men <- rnorm(nsim, p_hat_men, se_men)
+p_women <- rnorm(nsim, p_hat_women, se_women)
+
+# Calculate the ratios from the simulated vectors
+
+ratio <- p_men / p_women
+
+# Finally, provide CI via simulation
+ci_sim <- quantile(ratio, c(0.025, 0.975))
+
+ci_sim
+```
+
+
+## Exercise: Difference in Means
+
+Our previous quantity of interest was the "left-voting" ratio of men to women. Now we are interested in calculating a difference in means. Let's work with another substantive example here.
+
+The file `polity.dta` contains information on Polity scores, a measure of democracy in the country, which varies from 0 to 10, with 0 being the least democratic. We want to test if the difference in polity scores between *Eastern Europe* and *Western Europe and North America* is "statistically significant".
+
+Let's load the dataset:
+
+```{r Exercise I}
+data <- read.dta("raw-data/polity.dta")  # Why doesn't load("polity.dta") work? 
+```
+
+First, we always investigate the dataset:
+
+```{r Exercise II, collapse=FALSE, attr.output='style="max-height: 200px;"'}
+head(data)
+glimpse(data) # function from dplyr package
+
+table(data$region)
+```
+
+We start by extracting Polity scores of *Eastern Europe* and *Western Europe and North America* from the data set. Remember selecting/subsetting?
+
+```{r Exercise III}
+west <- data$fh_polity2[data$region == "Western Europe and North America"]
+east <- data$fh_polity2[data$region == "Eastern Europe"]
+```
+
+
+### Difference in Means via Simulation
+
+In order to find out whether the difference in mean Polity scores between *Eastern Europe* and *Western Europe and North America"* is "statistically significant", we need to derive confidence intervals of this difference.
+
+#### Calculate Standard Errors
+
+To start, calculate the standard errors of the mean estimates of polity scores for *Eastern Europe* and *Western Europe and North America*. 
+
+Formula for standard errors: $SE(\hat\theta) = \dfrac{\hat\sigma}{\sqrt N}$
+
+$\hat\theta$ = Estimate of population mean
+
+$\hat\sigma$ = Standard deviation of a sample
+
+$N$ = Number of observations
+
+```{r Exercise IV}
+n_east = length(east)
+#se_east <- sqrt(east * (1 - east) / n_east)
+se_east <- sd(east) / sqrt(length(east))
+se_west <- sd(west) / sqrt(length(west))
+
+```
+
+#### Simulate Confidence Intervals for the Means
+
+We now have standard deviations for the mean polity scores of both regions. This equips us to simulate confidence intervals for these estimates.
+
+```{r Exercise V}
+# 1. Simulate sampling distributions 
+
+nsim <-  1000
+d_west <- rnorm(nsim, mean = mean(west), sd = se_west)
+d_east <- rnorm(nsim, mean = mean(east), sd = se_east)
+# why sd = se -> large number of observation includes not just variance
+
+# 2. Calculate quantiles to get CI
+
+ci_west <- quantile(x = d_west, probs = c(0.025, 0.975))
+ci_east <- quantile(x = d_east, probs = c(0.025, 0.975))
+```
+
+#### Simulate Confidence Intervals for the Difference in Means
+
+Now we can check the difference: Subtract the simulated sampling distribution of the mean of western countries from the simulated sampling distribution of eastern countries and calculate the quantiles to get the CI of the difference in means. You can also plot the sampling distribution of the difference in means and calculate its mean.
+
+```{r Exercise VI}
+# 1. Subtract the simulated sampling distributions of the mean (west-east)
+
+diff <- ci_west - ci_east
+
+# 2. Calculate quantiles to get CI
+
+ci_sim <- quantile(x = diff, probs = c(0.025, 0.975))
+
+# 3. plot and mean
+
+hist(diff) #wrong 
+mean(diff)
+diff
+```
+
+### Appendix 1: This is how we get this analytically
+
+We do it by hand, using the normal approximation. 
+
+```{r Appendix 1, I}
+n1 <- length(west)
+n2 <- length(east)
+
+ci_up <- (mean(west) - mean(east)) + 1.96 * sqrt(var(west) / n1 + var(east) / n2)
+ci_low <- (mean(west) - mean(east)) - 1.96 * sqrt(var(west) / n1 + var(east) / n2)
+
+ci_ahand <- c(ci_low, ci_up)
+```
+
+Of course there is also an easy way: in this case the t-test function.
+
+```{r Appendix 1, II}
+t.test(west, east)
+
+ci_t <- t.test(west, east)[[4]][1:2]
+```
+
+### Appendix 2: This is how we get this via bootstrap
+
+We again need an empty vector to save the results.
+
+```{r Appendix 2, I}
+diff_boot <- rep(NA, 1000)
+
+for (i in seq_len(1000)) {
+  a <- mean(sample(west, length(west), replace = T))
+  b <- mean(sample(east, length(east), replace = T))
+
+  diff_boot[i] <- a - b
+}
+
+mean(diff_boot)
+ci_boot <- quantile(diff_boot, c(0.025, 0.975))
+
+# Finally, we present the results in a table.
+res <- matrix(NA, 4, 2)
+
+res[1, ] <- ci_sim
+res[2, ] <- ci_ahand
+res[3, ] <- ci_t
+res[4, ] <- ci_boot
+
+rownames(res) <- c("Simulation", "By hand", "t-test", "Bootstrapping")
+colnames(res) <- c("Lower 95% bound", "Upper 95% bound")
+res
+```
+
+> Pro-tip: Use `knitr::kable()` to get nicely formatted tables from R objects to Markdown
+
+```{r Appendix 2, II}
+knitr::kable(res,
+  digits = 3
+)
+```
+
+# Concluding remarks
+
+You learned about the different ways to calculate confidence intervals in R, with simulation and bootstrapping as well as analytically. You may still wonder which confidence level is the most appropriate to use. There is always a trade-off between precision and accuracy of the statements when it comes to reporting the quantities of interest. If we want to be very certain that we capture the population parameter, we may be tempted to use  a wider confidence interval. This, however, comes with certain drawbacks, such as the interval becoming rather uninformative:
+
+```{r Garfield image, fig.width=2, echo=FALSE, fig.align='center'}
+knitr::include_graphics(here("img/garfield.png"))
+```
+
+The best solution to get the best of both worlds - high accuracy as well as high precision - would be to increase the sample size, which is often easier said than done. 
+
+---
+
+In your homework you will:
+
++ Calculate some CIs using different approaches.
++ See how smart students in Mannheim are.
++ And check whether there was foul play in an election.
+

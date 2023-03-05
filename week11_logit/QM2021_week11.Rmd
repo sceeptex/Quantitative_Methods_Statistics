@@ -1,0 +1,1028 @@
+---
+title: "QM 2021 Week 11: Logit and Probit Models"
+author:
+  - "Oliver Rittmann"
+  - "Viktoriia Semenova"
+  - "David Grundmanns"
+date: "November 18 | 22 | 23, 2021"
+output:
+  html_document:
+    toc: yes
+    number_sections: yes
+    toc_float: yes
+    highlight: tango
+    css: css/lab.css
+    self_contained: yes
+  pdf_document:
+    toc: yes
+bibliography: citations.bib # this adds a bibliography file from the repo
+biblio-style: apsr # this selects the style 
+editor_options: 
+  chunk_output_type: inline
+  markdown: 
+    wrap: sentence
+---
+
+------------------------------------------------------------------------
+
+## Today we will learn: {.unnumbered}
+
+1.  MLE: Logit Regression With One Covariate
+2.  Logit/Probit in glm
+3.  Quantities of Interest
+4.  Classification Table and Separation Plots
+5.  An Applied Example
+
+In other words, the goals are to:
+
+-   Implement a MLE for a logit regression
+-   Use logit models with glm
+-   Compute meaningful quantities of interest
+-   Check the model fit of models with binary outcomes
+
+------------------------------------------------------------------------
+
+```{r setup, message=FALSE, warning=FALSE, results='hide'}
+# The first line sets an option for the final document that can be produced from
+# the .Rmd file. Don't worry about it.
+knitr::opts_chunk$set(echo = TRUE,
+                      collapse = TRUE,
+                      out.width="\\textwidth", # for larger figures 
+                      attr.output = 'style="max-height: 200px"',
+                      tidy = 'styler' # styles the code in the output 
+                      )
+
+# The next bit is quite powerful and useful. 
+# First you define which packages you need for your analysis and assign it to 
+# the p_needed object. 
+p_needed <-
+  c("ggplot2", "viridis", "MASS", "optimx", "scales", "foreign", 
+    "separationplot", "patchwork", "stargazer", "ggplotify")
+
+# Now you check which packages are already installed on your computer.
+# The function installed.packages() returns a vector with all the installed 
+# packages.
+packages <- rownames(installed.packages())
+# Then you check which of the packages you need are not installed on your 
+# computer yet. Essentially you compare the vector p_needed with the vector
+# packages. The result of this comparison is assigned to p_to_install.
+p_to_install <- p_needed[!(p_needed %in% packages)]
+# If at least one element is in p_to_install you then install those missing
+# packages.
+if (length(p_to_install) > 0) {
+  install.packages(p_to_install)
+}
+# Now that all packages are installed on the computer, you can load them for
+# this project. Additionally the expression returns whether the packages were
+# successfully loaded.
+sapply(p_needed, require, character.only = TRUE)
+
+# This is an option for stargazer tables
+# It automatically adapts the output to html or latex,
+# depending on whether we want a html or pdf file
+stargazer_opt <- ifelse(knitr::is_latex_output(), "latex", "html")
+
+
+# only relevant for ggplot2 plotting
+# setting a global ggplot theme for the entire document to avoid 
+# setting this individually for each plot 
+theme_set(theme_classic() + # start with classic theme 
+  theme(
+    plot.background = element_blank(),# remove all background 
+    plot.title.position = "plot", # move the plot title start slightly 
+    legend.position = "bottom" # by default, put legend on the bottom
+  ))
+
+```
+
+# MLE: Logit Regression With One Covariate {.tabset}
+
+As usual, we start with some fake data.
+But this time it will be slightly different.
+
+The first part will look familiar.
+
+```{r logit-1}
+# N of Population 
+n <- 1000
+
+# Set our true Parameters
+beta0 <- 0.25
+beta1 <- -0.8
+
+# Randomly draw an Independent Variable
+set.seed(2021)
+X <- rnorm(n, 0, 1)
+```
+
+Now we need some additional lines.
+
+We generate `p` (aka $\pi$ on slide 10) via the *logistic response function*:
+
+$$
+\pi_i = \frac{\exp(X_i\beta)}{1+\exp(X_i\beta)} = \dfrac{\overbrace{\exp(\mu_i)}^{\text{always greater than 0}}}{\underbrace{1 + \exp(\mu_i)}_{\text{1 + "always greater than 0"}}} \Rightarrow 0 < \pi_i < 1
+$$
+
+Here `mu` is the linear predictor. Together, the linear predictor and the response function constitute the *systematic component* of the model. By using the *logistic response function*, we are ensuring it that with any value of $X$ or $\beta$, the systematic component is reparametarized to be between 0 and 1. 
+
+```{r logit-2}
+mu <- beta0 + beta1 * X 
+
+p <- exp(mu) / (1 + exp(mu))
+
+# we achieve the same with the following code:
+p <- plogis(mu)
+```
+
+Let's quickly plot what we just did:
+
+```{r logit-3}
+par(mfrow = c(1, 2))
+
+# Systematic component: linear predictor
+plot(x = X,
+     y = mu,
+     pch = 19,
+     cex = 0.5,
+     col = viridis(1, 0.5),
+     main = "Simulated linear predictor",
+     font.main = 1,
+     cex.main = 0.8,
+     ylab = expression(mu[i]),
+     xlab = expression(X[i]),
+     las  = 1, 
+     bty = "n")
+text(x = 1.5,
+     y = 1.8,
+     labels = expression(mu[i] == X[i] * beta))
+
+# Systematic component: predicted probabilities
+plot(x = X,
+     y = p,
+     pch = 19,
+     cex = 0.5,
+     col = viridis(1, 0.5),
+     ylim = c(0,1),
+     main = "Simulated predicted probabilities",
+     font.main = 1,
+     cex.main = 0.8,
+     ylab = expression(p[i]),
+     xlab = expression(X[i]),
+     las = 1, 
+     bty = "n")
+text(x = 1.5,
+     y = 0.85,
+     labels = expression(pi[i] == frac(exp(mu[i]), exp(1 + mu[i]))))
+```
+
+As we observe only 0 or 1, we draw from a *Bernoulli* distribution (the *stochastic component* of the model) with p = p ($\pi$). Recall that in R, we take draws from Bernoulli by working with its more general form, the *Binomial* distribution, but specify the `size = 1`, i.e. that we only take one draw from this distribution:  
+
+```{r logit-4}
+Y <- rbinom(n, 1, p)
+```
+
+Let's add this step to the plot above:
+
+## Base R {.unnumbered}
+
+```{r logit-5}
+par(mfrow = c(1, 3))
+
+# Systematic component: LP (unobserved in reality)
+plot(x = X,
+     y = mu,
+     pch = 19,
+     cex = 0.5,
+     col = ifelse(Y == 1, viridis(2, 0.5)[1],  viridis(2, 0.5)[2]),
+     main = "Simulated Linear Predictor",
+     font.main = 1,
+     cex.main = 0.8,
+     ylab = expression(mu[i]),
+     xlab = expression(X[i]),
+     las = 1,
+     bty = "n")
+text(x = 1.5,
+     y = 1.8,
+     labels = expression(mu[i] == X[i] * beta))
+
+# Systematic component: predicted probabilities (unobserved in reality)
+plot(x = X,
+     y = p,
+     pch = 19,
+     cex = 0.5,
+     ylim = c(0,1),
+     col = ifelse(Y == 1, viridis(2, 0.5)[1],  viridis(2, 0.5)[2]),
+     main = "Simulated predicted probabilities",
+     font.main = 1,
+     cex.main = 0.8,
+     ylab = expression(p[i]),
+     xlab = expression(X[i]),
+     las = 1,
+     bty = "n")
+text(x = 1.5,
+     y = 0.85,
+     labels = expression(pi[i] == frac(exp(mu[i]), exp(1 + mu[i]))))
+
+# observed values
+plot(x = X,
+     y = Y,
+     pch = 19,
+     cex = 0.5,
+     col = ifelse(Y == 1, viridis(2, 0.5)[1],  viridis(2, 0.5)[2]),
+     main = "Simulated observed values Y",
+     font.main = 1,
+     cex.main = 0.8,
+     ylab = expression(Y[i]),
+     xlab = expression(X[i]), 
+     las = 1, 
+     bty = "n")
+```
+
+Now we want to estimate a logit model, i.e., to get back from the observed probabilities $Y$ and the values of $X$ to the coefficients $\beta$ and probabilities $\pi$.
+
+## ggplot2 {.unnumbered}
+
+```{r logit-6, warning=FALSE, out.width="100%"}
+# Systematic component: LP
+syst <- ggplot() +
+  scale_y_continuous(limits = c(-3, 3)) +
+  scale_x_continuous(limits = c(-3.5, 3.5)) +
+  geom_point(aes(x = X, y = mu,
+                 color = Y)) +
+  labs(x = expression(X[i]),
+       y = expression(mu[i]),
+       title = "Linear Predictor") +
+  annotate("text",
+           label = expression(mu[i] == X[i] * beta),
+           x = 1, y = 1.8,
+           hjust = 0) 
+
+# Systematic component: predicted probabilities
+pps <- ggplot() +
+  scale_y_continuous(limits = c(0, 1)) +
+  scale_x_continuous(limits = c(-3.5, 3.5)) +
+  geom_point(aes(x = X, y = p,
+                 color = Y)) +
+  labs(x = expression(X[i]),
+       y = expression(p[i]),
+       title = "Predicted Probabilities") +
+  annotate("text",
+           label = expression(pi[i] == frac(exp(mu[i]), exp(1 + mu[i]))),
+           x = 1, y = 0.85)
+
+# observed values
+yhat <- ggplot() +
+  scale_y_continuous(limits = c(0, 1)) +
+  scale_x_continuous(limits = c(-3.5, 3.5)) +
+  geom_point(aes(x = X, y = Y,
+                 color = Y)) +
+  labs(x = expression(X[i]),
+       y = expression(Y[i]),
+       title = "Observed Probabilities") 
+
+syst + pps + yhat  + 
+  plot_annotation(title = "Simulated Quantities") &
+  scale_color_viridis(direction = -1) & theme(legend.position = "none")
+
+```
+
+Now we want to estimate a logit model, i.e., to get back from the observed probabilities $Y$ and the values of $X$ to the coefficients $\beta$ and probabilities $\pi$.
+
+# Logit MLE
+
+We start by writing our own logistic response function in `R`:
+$$\pi = \dfrac{\overbrace{\exp(x)}^{\text{always greater than 0}}}{\underbrace{1 + \exp(x)}_{\text{1 + "always greater than 0"}}} \Rightarrow 0 < \pi < 1$$.
+
+```{r logit-7}
+l_response <- function(x){
+  exp(x) / (1 + exp(x))
+}
+```
+
+Check if your function works:
+
+```{r logit-8, eval = F}
+head(l_response(beta0 + beta1 * X))
+```
+
+## Set up the (log-)likelihood function
+
+As we want to estimate $\beta_0$ and $\beta_1$ using MLE, we need to set up a (log-)likelihood function.
+
+For this, we translate the Log-likelihood of the Logit model from slide 14 to `R`.
+
+$$
+\ell(\beta|y, X) = 
+    \sum_{i=1}^{n} [y_i \cdot \log \frac{\exp(X_{i}\beta)}{1+\exp(X_{i}\beta)} + 
+    (1-y_i) \cdot \log(1-\frac{\exp(X_{i}\beta)}{1+\exp(X_{i}\beta)})]
+$$
+
+This looks messier than it is.
+
+What happens to the log-likelihood function when $y_i = 0$?
+
+$$
+y_i \cdot \log \frac{\exp(X_{i}\beta)}{1+\exp(X_{i}\beta)} + 
+    (1-y_i) \cdot \log(1-\frac{\exp(X_{i}\beta)}{1+\exp(X_{i}\beta)}) \\=
+  \underbrace{0 \cdot \log \frac{\exp(X_{i}\beta)}{1+\exp(X_{i}\beta)}}_{\text{cancels out}} + 
+    \underbrace{(1-0) \cdot \log(1-\frac{\exp(X_{i}\beta)}{1+\exp(X_{i}\beta)})}_{\text{stays}} \\= 
+     \log(1-\frac{\exp(X_{i}\beta)}{1+\exp(X_{i}\beta)})
+$$
+
+The opposite is true when $y_i = 1$:
+
+$$
+y_i \cdot \log \frac{\exp(X_{i}\beta)}{1+\exp(X_{i}\beta)} + 
+    (1-y_i) \cdot \log(1-\frac{\exp(X_{i}\beta)}{1+\exp(X_{i}\beta)}) \\=
+  \underbrace{1 \cdot \log \frac{\exp(X_{i}\beta)}{1+\exp(X_{i}\beta)}}_{\text{stays}} + 
+    \underbrace{(1-1) \cdot \log(1-\frac{\exp(X_{i}\beta)}{1+\exp(X_{i}\beta)})}_{\text{cancels out}} \\= 
+    \log(\frac{\exp(X_{i}\beta)}{1+\exp(X_{i}\beta)})
+$$
+Depending on the value we observe, $y_i = 0$ or $y_i = 1$, we receive these reduced parts of the log-likelihood function for each observation and sum across them. 
+
+Now we can translate this into R. 
+
+Remember that we already have the response function $\dfrac{\exp(X_{i}\beta)}{1+\exp(X_{i}\beta)}$ implemented as `l_response()`.
+
+```{r logit-9}
+logit_ll <- function(X, Y, theta){
+  
+  beta0 <- theta[1]
+  beta1 <- theta[2]
+  
+  mu <- theta[1] + theta[2] * X
+  
+  logl <- sum(Y*log(l_response(mu)) + (1 - Y)*log(1 - l_response(mu)))
+  
+  return(logl)
+}
+```
+
+Thanks to this reparameterization of the linear predictor `mu` with the `l_response`, we can estimate the `theta` as unbounded, yet still ensuring that the predicted probabilities will be within the range of 0 and 1. 
+
+Now we maximize it numerically with the help of `optimx`.
+
+```{r logit-10}
+# Set Starting Values
+stval <- c(0, 0) # 2 values of theta -> 2 starting values 
+
+# Optimize
+res <- optimx(par = stval,    # start values
+              fn = logit_ll,  # log-likelihood function
+              Y = Y,
+              X = X, 
+              control = list(maximize = T))
+res
+```
+
+# Logit/Probit in glm
+
+Luckily, this is all implemented in `R` already.
+
+Have a look at the documentation of `glm`.
+
+```{r logit-11, eval = F}
+?glm
+```
+
+Let's make use of it:
+
+```{r logit-12, collapse=FALSE}
+m0 <- glm(Y ~ X, 
+          family = binomial(link = logit))
+
+summary(m0)
+```
+
+With `glm` we can also easily implement a probit model:
+
+```{r logit-13}
+m0_probit <- glm(Y ~ X, 
+                 family = binomial(link = probit))
+
+m0_probit$coefficients
+```
+
+> **Why do the coefficients differ for logit and probit models?** (Slide 15 might help.)
+
+### Predicted Probabilities from Logit and Probit {-}
+
+The predicted probability from the **logit** model would be: 
+
+$$\hat\pi_i = \text{Pr}(y_i = 1) = \dfrac{\exp(X_i\hat\beta)}{1 + \exp(X_i\hat\beta)} = \dfrac{\exp(0.24 -0.88\cdot x_i)}{1 + \exp(0.24 -0.88\cdot x_i)}$$
+
+```{r logit-13-1}
+head(l_response(coef(m0)[1] + coef(m0)[2] * X))
+```
+$$1 - \hat\pi_i = \text{Pr}(y_i = 0) = 1 - \dfrac{\exp(X_i\hat\beta)}{1 + \exp(X_i\hat\beta)} = 1 - \dfrac{\exp(0.24 -0.88\cdot x_i)}{1 + \exp(0.24 -0.88\cdot x_i)}$$
+```{r logit-13-2}
+head(1 - l_response(coef(m0)[1] + coef(m0)[2] * X))
+```
+
+These values together will sum to 1:
+
+```{r logit-13-3}
+head(l_response(coef(m0)[1] + coef(m0)[2] * X) + (1 - l_response(coef(m0)[1] + coef(m0)[2] * X)))
+```
+
+---
+
+The predicted probability from the **probit** model would be: 
+
+$$\hat\pi_i = \text{Pr}(y_i = 1) = \Phi(X_i\hat\beta) = \Phi(0.15 - 0.53 \cdot x_i),$$ where $\Phi(\cdot)$ is the CDF of a standard normal distribution $\mathcal{N}(0,1)$. 
+
+
+```{r probit-13-1}
+head(pnorm(coef(m0_probit)[1] + coef(m0_probit)[2] * X))
+```
+
+$$1 - \hat\pi_i = \text{Pr}(y_i = 0) = 1 - \Phi(X_i\hat\beta) = 1 - \Phi(0.15 - 0.53 \cdot x_i)$$
+```{r probit-13-2}
+head(1 - pnorm(coef(m0_probit)[1] + coef(m0_probit)[2] * X))
+```
+
+These values together will sum to 1:
+
+```{r probit-13-3}
+head(pnorm(coef(m0_probit)[1] + coef(m0_probit)[2] * X) + (1 - pnorm(coef(m0_probit)[1] + coef(m0_probit)[2] * X)))
+```
+
+
+# Quantities of Interest
+
+The coefficients of logit and (even more so) probit models are really hard to interpret beyond their sign.
+Now our simulation approach, to get meaningful quantities of interest, becomes really helpful.
+
+Let's start with plotting expected probabilities of our fake data model.
+
+## Simulate Parameters
+
+Remember the steps?
+
+Steps for simulating parameters (Estimation Uncertainty):
+
+1.  Get the coefficients from the regression (`beta_hat`).
+2.  Get the variance-covariance matrix (`V_hat`).
+3.  Set up a multivariate normal distribution `N(beta_hat, V_hat)`.
+4.  Draw from the distribution `nsim` times.
+
+```{r logit-14}
+# 1. get the coefficients
+beta_hat <- coef(m0)
+
+# 2. Get the variance-covariance matrix
+V_hat <- vcov(m0)
+
+# 3. Set up a multivariate normal distribution N(beta_hat, V_hat)
+# 4. Draw from the distribution nsim times
+nsim <- 10000
+S <- mvrnorm(n = nsim, 
+             mu = beta_hat, 
+             Sigma = V_hat)
+```
+
+## Calculate Expected Values {.tabset}
+
+*Next step*: set up an interesting scenarios and calculate expected values.
+
+```{r logit-15}
+# we simulate over a sequence of x-values
+seq_X <- seq(min(X), max(X), length.out = 100)
+scenario <- cbind(1, seq_X)
+
+# linear predictor 
+Xbeta <- S %*% t(scenario)
+
+dim(Xbeta)
+```
+
+So far there is nothing new compared to OLS simulation!
+
+*Now comes the difference:*
+
+To get expected values for $p$ (aka predicted probabilities), we need to plug in the $X_i\beta$ (`Xbeta`) values into the response function to get **simulated probabilities**.
+
+```{r logit-16}
+p_sim <- (exp(Xbeta))/ (1 + exp(Xbeta))
+
+# we can also use our own function:
+p_sim <- l_response(Xbeta)
+
+# or the build-in R-function for logistic distribution function (CDF):
+p_sim <- plogis(Xbeta) # aka inverse logit 
+
+dim(p_sim)
+```
+
+As before, we also want means and quantiles of our quantities of interest.
+
+```{r logit-17}
+p_mean <- apply(p_sim, 2, mean)
+p_qu <- t(apply(p_sim, 2, quantile, prob = c(0.025, 0.975)))
+```
+
+### Base R {.unnumbered}
+
+```{r logit-18}
+plot(x = seq_X, 
+     y = p_mean, 
+     ylim = c(0,1),
+     xlim = range(pretty(seq_X)),
+     type="n",
+     main = "Predicted Probabilies of Y",
+     ylab = "Probability of Y",
+     xlab = "X",
+     bty = "n",
+     las = 1)
+
+# plot uncertainty with a polygon
+polygon(x = c(rev(seq_X), seq_X), 
+        y = c(rev(p_qu[,2]), p_qu[,1]),
+        col = viridis(1, 0.4),
+        border = NA)
+
+# and a line
+lines(x = seq_X, 
+      y = p_mean,
+      lwd = 2)
+```
+
+Remember that we know the true data generating process (because we simulated the data).
+This means that we also know the true probability of Y for each observation.
+Let's see how well our estimation (and simulation) worked:
+
+```{r logit-19}
+plot(x = seq_X, 
+     y = p_mean, 
+     ylim = c(0,1),
+     xlim = range(pretty(seq_X)),
+     type="n",
+     main = "Predicted Probabilies of Y",
+     ylab = "Probability of Y",
+     xlab = "X",
+     bty = "n",
+     las = 1)
+
+# plot uncertainty with a polygon
+polygon(x = c(rev(seq_X), seq_X), 
+        y = c(rev(p_qu[,2]), p_qu[,1]),
+        col = viridis(2, 0.4)[1],
+        border = NA)
+
+# and a line
+lines(x = seq_X, 
+      y = p_mean,
+      lwd = 2)
+
+# we add the "true" probabilities
+# note that these are unobserved in the real world
+points(x = X,
+       y = p,
+       pch = 1,
+       cex = 0.5,
+       ylim = c(0,1),
+       col = viridis(2, 0.4)[2])
+```
+
+### ggplot2 {.unnumbered}
+
+```{r logit-20}
+# data frame for predicted probabilities and CI
+plot_df <- data.frame("p_mean" = p_mean,
+                      "ci_lo" = p_qu[,1],
+                      "ci_hi" = p_qu[,2])
+plot_df$seq_X <- seq_X
+
+# plot
+pp <- ggplot(data = plot_df, aes(x = seq_X, y = p_mean)) +
+  geom_line() +
+  geom_ribbon(
+    aes(ymin = ci_lo, ymax = ci_hi),
+    fill = viridis(1, 0.5), # add color for filling 
+    color = viridis(1), # add color for lines
+    linetype = "dashed" # make lines dashed
+  ) +
+  labs(
+    x = "X",
+    y = "Probability of Y",
+    title = "Predicted Probabilities of Y"
+  )
+pp
+```
+
+Remember that we know the true data generating process (because we simulated the data).
+This means that we also know the true probability of Y for each observation.
+Let's see how well our estimation (and simulation) worked:
+
+```{r logit-21}
+fake_data <- data.frame(X, p)
+pp + geom_point(
+  data = fake_data,
+  aes(x = X, y = p),
+  shape = 1,
+  color = viridis(2, 0.4)[2]
+)
+```
+
+# Classification Tables and Separation Plots
+
+How can we check how good our logit model actually is?
+
+## Classification Tables
+
+An easy test is to cross-tabulate observed and predicted values of y.
+For this we classify the predicted probabilities as either 0 or 1.
+This of course depends on some cut-point.
+Usually we take a cutoff point of 0.5.
+
+Let's do this for our model:
+`m0$fitted.values > 0.5` will generate the logical values for whether the fitted value is above or below the threshold `TRUE` and `FALSE`, and we will multiply them by `*1` to make `TRUE` equal 1 and `FALSE` equal zero.  
+
+```{r logit-22}
+table(observed = Y, 
+      predicted = (m0$fitted.values > 0.5)*1) # or simply round(m0$fitted.values)
+```
+
+> *How many correctly predicted?* *How many falsely predicted?*
+
+Let's make a classification table and calculate the percentage of correctly predicted (aka accuracy) cases (*PCP*; see slide 25).
+
+```{r logit-23}
+class_table <- table(observed = Y, predicted = (m0$fitted.values > 0.5)*1)
+class_table
+
+pcp <- sum(diag(class_table)) / sum(class_table)
+pcp
+```
+
+
+
+## Separation Plots {.tabset}
+
+Another very good way to asses model fit are separation plots.
+
+Let's install the package `separationlpot` to get started (already done).
+
+Separation plot is a method to visually inspect the fit of a binary model. In this plot, the dark and light panels correspond to the actual instances of the events $(y_i = 1)$  and nonevents $(y_i = 0)$, respectively. 
+Construction of the separation plot begins by simply rearranging the observations such that the fitted values, i.e. the predicted probabilities $\pi_i$ are presented in ascending order (you can spot it on the black line on the plot). Then one notes whether each of these observations corresponds to an actual instance of the event $(y_i = 1)$ or a nonevent $(y_i = 0)$. These are depicted with the color panels mentioned above. The more nonevents are on the left side and the more events are on the right side, the better the model fit.
+
+@greenhill_et_al_2011 explain this in more detail:
+
+> A model with no predictive power-i.e., one whose outcomes can be approximated by a random coin toss—would generate an even distribution of 0s and 1s along the column on the right-hand side. On the other hand, a model with perfect predictive power would produce a complete separation of the 0s and 1s in the right-hand column: low fitted values would always turn out to be associated with actual instances of peace (0s), whereas high fitted values would always be associated with actual instances of war (1s).
+
+A perfect model would show complete separation of the dark and light‐colored rows like this:
+
+![](https://onlinelibrary.wiley.com/cms/asset/86e0b213-3db1-4382-882e-472be6bd773c/ajps_525_f6.gif)
+
+The dark line, the respective $\pi_i$, allows us to judge whether the overall degree of separation between events and nonevents is associated with sharp differences in predicted probabilities, or more modest differences. 
+
+Another quantity of interest is the *expected number of total events* predicted by the model. We can calculate this by simply adding up the predicted probabilities across all observations and rounding the value. This quantity, depicted with a small black triangle on the plot, allows to see how the total number of events predicted by the model compares to the actual number of events in the data.
+
+This is what the separation plot for our fake data would look like:
+
+### Base R {.unnumbered}
+
+```{r logit-24}
+separationplot(pred = m0$fitted, 
+               actual = Y,
+               line = TRUE,
+               heading = "Separation Plot for Model 0", 
+               show.expected = T,
+               col0 = viridis(2, alpha = 0.5)[2],
+               col1 = viridis(2, alpha = 0.5)[1],
+               lwd2 = 2,
+               height = 2,
+               newplot = F)
+```
+
+If you want to know more about Separation Plots and see more examples of using them, you should read the paper by @greenhill_et_al_2011.
+
+### ggplot2 {.unnumbered}
+
+In case you want to keep all plots as `ggplot2` objects for some reason (say to keep the figure fonts uniform across the paper), you can transform these base R objects into `ggplot2` kind with `ggplotify` package:
+
+```{r logit-24-1}
+as.ggplot(~separationplot(pred = m0$fitted, 
+                         actual = Y,
+                         line = TRUE,
+                         show.expected = T,
+                         col0 = viridis(2)[2],
+                         col1 = viridis(2)[1],
+                         lwd2 = 2,
+                         newplot = F)) +
+  labs(title = "Separation Plot for Model 0")
+```
+
+# An Applied Example: Fearon and Laitin 2003: Ethnicity, Insurgency, and Civil War
+
+Let's have a look at some real data!
+
+We will work with the @fearon_laitin_2003 dataset on ethnicity, insurgency, and civil wars.
+
+First, we estimate the effect of log mountains (`log_mountain`) on onset of civil war (`civilwar`) using `optimx` and the functions from above.
+
+We start with a simple bivariate model.
+
+```{r logit-25, results='asis'}
+df <- read.dta("raw-data/fearon.dta")
+stargazer(df, type = stargazer_opt)
+```
+
+```{r logit-25-1, collapse=FALSE}
+res2 <- optimx(stval, 
+               logit_ll, 
+               Y = df$civilwar, 
+               X = df$log_mountain, 
+               control = list(maximize=T))
+
+res2
+```
+
+Now we want to fit the same logit regression as above, but this time using `glm`:
+
+```{r logit-26}
+m1 <- glm(civilwar ~ log_mountain, 
+          data = df, 
+          family = binomial(link = logit))
+```
+
+Let's see how we did and compare the results to our likelihood function.
+
+```{r logit-27}
+m1$coefficients
+
+res2[1:2, 1:2]
+```
+
+## One of the published Fearon/Laitin Models
+
+We load the data and omit all observations with missing values.
+
+```{r logit-28, collapse=FALSE}
+df <- read.dta("raw-data/fearon_rep.dta")
+summary(df)
+
+df2 <- na.omit(df)
+summary(df2)
+```
+
+Let's estimate the model:
+
+```{r logit-29}
+m_fearon1 <- glm(
+  civilwar ~
+    priorwar +
+    gdp_lagged +
+    log_population +
+    log_mountain +
+    noncontiguous +
+    oil +
+    newstate +
+    instability +
+    democracy1 +
+    ethnicfrac +
+    relifrac,
+  data = df,
+  family = binomial(link = logit)
+)
+
+```
+
+In order to make sense of our results, let's plot predicted probabilities for the onset of civil war given different levels of `log_mountain`, setting all other variables to their mean (continuous)/median (discrete).
+
+Here is the scenario for you:
+
+```{r logit-30, collapse=FALSE}
+log_mountain_range <- 
+  seq(min(df$log_mountain, na.rm = T), 
+      max(df$log_mountain, na.rm = T), 
+      length.out = 100)
+
+scenario <- 
+  cbind(1,                                    # The Intercept
+        median(df$priorwar, na.rm = T),       # The median of priorwar
+        mean(df$gdp_lagged, na.rm = T),       # The mean of gdp_lagged
+        mean(df$log_population, na.rm = T),   # The mean of log_population
+        log_mountain_range,                   # Our sequence for log_mountain
+        median(df$noncontiguous, na.rm = T),  # The median of noncontiguous
+        median(df$oil, na.rm = T),            # The median of oil
+        median(df$newstate, na.rm = T),       # The median of newstate
+        median(df$instability, na.rm = T),    # The median of instability
+        mean(df$democracy1, na.rm = T),       # The mean of democracy1
+        mean(df$ethnicfrac, na.rm = T),       # The mean of ethnicfrac
+        mean(df$relifrac, na.rm = T)          # The mean of relifrac
+        )
+
+# Have a look at the scenario
+head(scenario)
+
+# Is everything in the correct order?
+coef(m_fearon1)
+```
+
+## Exercise Section {.unnumbered}
+
+Now, it's your turn.
+
+First, could you describe the scenario in your own words?
+
+Now, you can follow exactly the same steps as above:
+
+### Simulate Parameters {.unnumbered}
+
+1.  Get the coefficients from the regression (`beta_hat`).
+2.  Get the variance-covariance matrix (`V_hat`).
+3.  Set up a multivariate normal distribution `N(beta_hat, V_hat)`.
+4.  Draw from the distribution `nsim` times.
+
+```{r logit-31, eval = F}
+beta_hat <- 
+V_hat <- 
+
+library(MASS)
+S <- 
+```
+
+### Calculate Expected Values {.unnumbered}
+
+Let's use the scenario from above.
+
+```{r logit-32, eval = F}
+Xbeta <- 
+
+```
+
+To get expected values for p, we need to plug in the `Xbeta` values into the response function to get simulated probabilities.
+
+```{r logit-33, eval = F}
+p_sim <- 
+```
+
+Pro Question: **How could we include fundamental uncertainty?**
+
+Now we also want means and quantiles:
+
+```{r logit-34, eval = F}
+p_mean <- 
+p_qu <- 
+```
+
+### Plot {.unnumbered}
+
+This time we instantly plot a polygon and include ticks for actual x-values of our observations:
+
+```{r logit-35, eval = F}
+
+```
+
+> *What can we learn from this plot?*
+
+------------------------------------------------------------------------
+
+### Unlogging Mountains... {.unnumbered}
+
+Of course you could (and should!) also unlog the mountains...
+
+```{r logit-36, eval=FALSE}
+# start with an empty plot
+plot(x = exp(log_mountain_range), 
+     y = p_mean, 
+     type = "n",
+     ylim = c(0, 0.045),
+     ylab = "Probability of Civil War onset",
+     xlab = "Mountainous Terrain in %",
+     bty = "n",
+     las = 1)
+
+# draw polygon
+polygon(x = c(rev(exp(log_mountain_range)), exp(log_mountain_range)), 
+        y = c(rev(p_qu[,2]), p_qu[,1]),
+        col = viridis(1, 0.4),
+        border = NA)
+
+# add lines
+lines(x = exp(log_mountain_range), 
+      y = p_mean, lwd = 2)
+lines(x = exp(log_mountain_range), 
+      y = p_qu[, 1], 
+      lty = "dashed", 
+      col = viridis(1))
+lines(x = exp(log_mountain_range), 
+      y = p_qu[, 2], 
+      lty = "dashed", 
+      col = viridis(1))
+
+# Adding ticks of actual x-values.
+axis(1, 
+     at = exp(df$log_mountain),
+     col.ticks = viridis(1),
+     labels = FALSE, 
+     tck = 0.02) 
+```
+
+
+## Classification Tables and Separation Plots
+
+Again, we want to assess model fit.
+Remember: simply running a model without testing for model fit is dangerous!
+
+As above, we will look at classification tables and separation plots.
+Let's do this for Model 1 from above.
+
+```{r logit-37}
+# Expected Values (no fundamental uncertainty)
+table(
+  observed = factor(m_fearon1$model$civilwar, levels = 0:1),
+  predicted = factor((m_fearon1$fitted.values > 0.5) * 1, levels = 0:1)
+)
+
+# Predicted Values (including fundamental uncertainty)
+table(
+  observed = factor(m_fearon1$model$civilwar, levels = 0:1),
+  predicted = factor(rbinom(
+    n = length(m1$fitted.values),
+    size = 1,
+    p = m1$fitted.values
+  ),
+  levels = 0:1)
+)
+```
+
+```{r logit-38}
+separationplot(m_fearon1$fitted, m_fearon1$model$civilwar,
+               line = TRUE,
+               heading = "Fearon/Laitin: Model 1", 
+               show.expected = T,
+               height = 2,
+               col0 = viridis(2)[2],
+               col1 = viridis(2)[1],
+               lwd2 = 2,
+               newplot = F)
+```
+
+Again, we can also make classification tables and calculate the precentage of correctly predicted (aka accuracy) cases (PCP).
+
+```{r logit-39}
+class_table1 <- 
+  table(observed = factor(m_fearon1$model$civilwar, levels = 0:1), 
+        predicted = factor((m_fearon1$fitted.values > 0.5)*1, levels = 0:1))
+
+pcp_1 <- sum(diag(class_table1)) / sum(class_table1)
+
+pcp_1
+```
+
+**Sounds pretty good, doesn't it?**
+
+But how good would a naive model - that is always predicting the majority class - predict civilwars?
+
+That's the so called Percent of observations in the Modal Category (PMC)
+
+```{r logit-40}
+table(m_fearon1$model$civilwar)
+max(table(m_fearon1$model$civilwar)) / sum(table(m_fearon1$model$civilwar))
+```
+
+That's exactly the same accuracy...
+
+# Concluding Remarks {-}
+
+-   In your homework you will further investigate the Fearon/Laitin models.
+
+# Appendix {.unnumbered}
+
+We can also make our life a little easier and write a function that will calculate the average case scenario for us:
+
+
+```{r logit-41, collapse=FALSE}
+# m_fearon1$model contains the data used to estimate the model 
+# there are no missing data there, and the variables are in the same order as
+# the main terms in the regression equation (but this is not as straightforward
+# with models with interactions or cases where we pass character or factor vars 
+# into the model)
+# the first column is the dependent variable
+head(m_fearon1$model)
+
+average_case <- function(x, rep = 1) {
+  # if there only two unique values in x and  difference between them is 1 
+  # (i.e. it is a dummy variable 0/1, 1/2 or similar)
+  if (!is.numeric(x)) return(paste0("Transform variable to numeric"))
+  if (length(unique(x)) == 2 & diff(range(x)) == 1) {
+    # we take a median
+    rep(median(x, na.rm = T), rep)
+  }else{
+    # otherwise, we take a mean
+    rep(mean(x, na.rm = T), rep)
+  }
+  
+}
+# calculate the average for all independent variables 
+scenario <- cbind(1, apply(m_fearon1$model[,-1], 2, average_case, rep = 100))
+# substitute the values in one variable with a sequence
+scenario[, which(colnames(scenario) == "log_mountain")] <-
+  seq(min(df$log_mountain, na.rm = T), 
+      max(df$log_mountain, na.rm = T), 
+      length.out = 100)
+```
+
+# References {.unnumbered .unlisted}

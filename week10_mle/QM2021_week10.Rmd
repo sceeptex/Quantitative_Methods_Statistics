@@ -1,0 +1,972 @@
+---
+title: "QM 2021 Week 10: Maximum Likelihood Estimation"
+author:
+  - "Oliver Rittmann"
+  - "Viktoriia Semenova"
+  - "David Grundmanns"
+date: "November 11 | 15 | 16, 2021"
+output:
+  html_document:
+    toc: yes
+    number_sections: yes
+    toc_float: yes
+    highlight: tango
+    css: css/lab.css
+    self_contained: yes
+    code_folding: hide
+    
+---
+
+---
+
+  
+# Today we will learn: {.unnumbered}
+
+1.  MLE: Binomial Distribution
+2.  MLE: LM Without Covariates
+3.  MLE: LM With One Covariate
+
+In other words, the goals are to:
+
+- Understand the likelihood principle.
+- Calculate and maximize (log-) likelihood functions in R.
+
+---
+
+```{r setup, message=FALSE, warning=FALSE, results='hide'}
+# The first line sets an option for the final document that can be produced from
+# the .Rmd file. Don't worry about it.
+knitr::opts_chunk$set(echo = TRUE,
+                      collapse = TRUE,
+                      out.width="\\textwidth", # for larger figures 
+                      attr.output = 'style="max-height: 200px;"'
+                      )
+
+# The next bit is quite powerful and useful. 
+# First you define which packages you need for your analysis and assign it to 
+# the p_needed object. 
+p_needed <-
+  c("ggplot2", "viridis", "MASS", "optimx", "scales", "foreign")
+
+# Now you check which packages are already installed on your computer.
+# The function installed.packages() returns a vector with all the installed 
+# packages.
+packages <- rownames(installed.packages())
+# Then you check which of the packages you need are not installed on your 
+# computer yet. Essentially you compare the vector p_needed with the vector
+# packages. The result of this comparison is assigned to p_to_install.
+p_to_install <- p_needed[!(p_needed %in% packages)]
+# If at least one element is in p_to_install you then install those missing
+# packages.
+if (length(p_to_install) > 0) {
+  install.packages(p_to_install)
+}
+# Now that all packages are installed on the computer, you can load them for
+# this project. Additionally the expression returns whether the packages were
+# successfully loaded.
+sapply(p_needed, require, character.only = TRUE)
+
+# This is an option for stargazer tables
+# It automatically adapts the output to html or latex,
+# depending on whether we want a html or pdf file
+stargazer_opt <- ifelse(knitr::is_latex_output(), "latex", "html")
+
+# this changes the behavior of the magma function a little 
+formals(magma)$end <- 0.7
+formals(magma)$direction <- -1
+
+# only relevant for ggplot2 plotting
+# setting a global ggplot theme for the entire document to avoid 
+# setting this individually for each plot 
+theme_set(theme_classic() + # start with classic theme 
+  theme(
+    plot.background = element_blank(),# remove all background 
+    plot.title.position = "plot", # move the plot title start slightly 
+    legend.position = "bottom" # by default, put legend on the bottom
+  ))
+
+```
+
+
+# MLE: Binomial Distribution
+
+
+Today we will significantly extend our statistical toolbox. Maximum Likelihood Estimation will be really useful to solve many problems (You still should be able to apply OLS though ;-) ).
+
+
+## Simple example: A biased coin {.tabset}
+
+Let's say we have a biased coin, but we do not know the amount of the bias. The only possibility to learn about the bias is to observe how the coin behaves.
+
+We start by tossing the coin ten times and get **3 tails** and **7 heads**. How do we use this data to learn about the bias of the coin?
+
+We are now in a situation where we have empirical data (3 tails, 7 heads), but the probability $P(Head)$ is unknown. This is where the concept of **likelihood** comes in. To learn about $p$, we ask may start by asking: *How likely is it that we observed 3 tails and 7 heads if p was $p = 0.6$?*
+
+The good news is that we know how to calculate this since week 2. If $p=0.6$, then the PMF of the binomial distribution tells us:
+
+$$
+f(k = 7, N = 10, p = 0.6) = \frac{N!}{(N-k)!k!}p^k(1-p)^{N-k}
+$$
+
+Plugging in yields:
+
+$$
+f(k = 7, N = 10, p = 0.6) = \frac{10!}{(10-7)!7!}0.6^7(1-0.6)^{10-7}
+$$
+
+Let's do the calculus in R:
+
+```{r mle-1,  class.source = 'fold-show'}
+lik_1 <- factorial(10) / (factorial(10 - 7) * factorial(7)) * 0.6 ^ 7 * (1 - 0.6) ^ (10 - 7)
+lik_1
+```
+
+If $P(Head)$ was 0.6, then the probability of observing 7 heads out of 10 coin tosses is 0.22. 
+
+But remember that p is unknown, so it could also be the case that the true probability of $p$ is 0.55 or 0.65 or any other value between 0 and 1. Let's see what happens if we assume that $p = 0.65$:
+
+```{r mle-2,  class.source = 'fold-show'}
+lik_2 <- factorial(10) / (factorial(10 - 7) * factorial(7)) * 0.65 ^ 7 * (1 - 0.65) ^ (10 - 7)
+lik_2
+```
+
+The resulting likelihood is higher, so it is more likely that the true value of P(head) is 0.65 rather than 0.6. We can nicely see this in a plot:
+
+```{r mle-3}
+p <- c(0.6, 0.65)
+lik <- c(lik_1, lik_2)
+```
+
+### Base R {-}
+
+```{r mle-4}
+plot(x = p,
+     y = lik,
+     xlim = c(0,1),
+     ylim = c(0, 0.3),
+     pch = 19,
+     ylab = "L(p)",
+     xlab = "p",
+     las = 1,
+     xaxt = "n",
+    bty = "n",
+    type = "n")
+axis(1, seq(0, 1, 0.1))
+segments(x0 = p,
+         x1 = p,
+         y0 = 0,
+         y1 = lik,
+         col = magma(2)[1])
+segments(x0 = 0,
+         x1 = p,
+         y0 = lik,
+         y1 = lik,
+         col = magma(2)[1])
+points(x = p,
+     y = lik,
+     xlim = c(0,1),
+     ylim = c(0, 0.3),
+     pch = 19)
+text(x = 0,
+     y = lik + 0.01,
+     labels = c(paste0("Probability of observing 7 heads if p was ", p)),
+     col = magma(2)[1],
+     cex = 0.7,
+     pos = 4)
+
+```
+
+### ggplot2 {-}
+
+```{r mle-5}
+ggplot() +
+  scale_y_continuous(limits = c(0, 0.3)) +
+  scale_x_continuous(limits = c(0, 1)) +
+  geom_segment(aes(
+    y = lik, yend = 0, x = p, xend = p
+  ),
+  color = magma(1)
+  ) +
+  geom_segment(aes(
+    y = lik, yend = lik, x = p, xend = 0
+  ),
+  color = magma(1)
+  ) +
+  geom_point(aes(x = p, y = lik)) +
+  labs(y = "L(p)") +
+  geom_text(aes(
+    label = paste0("Probability of observing 7 heads if p was ", p),
+    x = 0, y = lik + 0.01,
+    hjust = 0
+  ),
+  color = magma(1)
+  )
+```
+
+## The Likelihood Function {.tabset}
+
+The likelihood is the probability of observing some given data depending on the unknown parameter $p$. By now, we know that $L(p = 0.65) > L(p = 0.6)$, but we want to find the value of $p$ that maximizes the likelihood function $L(p)$.
+
+The likelihood function is just like the PMF of the binomial distribution, only that now $p$ is unknown, while N (10 coin tosses) and y (seven heads) are known. 
+
+$$
+L(p|y,N) = \frac{N!}{(N-y)!y!}p^y(1-p)^{N-y}
+$$
+
+- N = Number of trials (coin tosses)
+- y = Number of successes ('heads')
+- p = probability of success (P(head))
+
+We can implement this function in R:
+
+```{r mle-6,  class.source = 'fold-show'}
+binom_lik <- function(y, n, p) {
+  factorial(n) / (factorial(n - y) * factorial(y)) * p ^ y * (1 - p) ^ (n - y)
+}
+```
+
+and plug in various values. 
+
+```{r mle-7,  class.source = 'fold-show'}
+# Let's start with a sequence
+p <- seq(0, 1, 0.05)
+lik <- binom_lik(y = 7, n = 10, p = p)
+```
+
+### Base R {-}
+
+```{r mle-8}
+plot(
+  x = p,
+  y = lik,
+  xlim = c(0, 1),
+  ylim = c(0, 0.3),
+  pch = 19,
+  col = magma(2)[1],
+  ylab = "L(p)",
+  xlab = "p",
+  las = 1,
+  xaxt = "n",
+  bty = "n",
+  type = "n"
+)
+axis(1, seq(0, 1, 0.1))
+segments(
+  x0 = p,
+  x1 = p,
+  y0 = 0,
+  y1 = lik,
+  col = magma(1)
+)
+segments(
+  x0 = 0,
+  x1 = p[9:15],
+  y0 = lik[9:15],
+  y1 = lik[9:15],
+  col = magma(1)
+)
+points(
+  x = p,
+  y = lik,
+  xlim = c(0, 1),
+  ylim = c(0, 0.3),
+  pch = 19
+  )
+text(
+  x = 0,
+  y = lik[9:15] + 0.005,
+  labels = c(paste0(
+    "Probability of observing 7 heads if p was ", p[9:15]
+  )),
+  col = magma(1),
+  cex = 0.7,
+  pos = 4
+)
+```
+
+
+### ggplot2 {-}
+
+```{r mle-9}
+ggplot() +
+  scale_y_continuous(limits = c(0, 0.3)) +
+  scale_x_continuous(limits = c(0, 1)) +
+  geom_segment(aes(
+    y = lik, yend = 0, x = p, xend = p
+  ),
+  color = magma(1)
+  ) +
+  geom_segment(aes(
+    y = lik[9:15], yend = lik[9:15], x = p[9:15], xend = 0
+  ),
+  color = magma(1)
+  ) +
+  geom_point(aes(x = p, y = lik)
+  ) +
+  labs(y = "L(p)") +
+  geom_text(aes(
+    label = paste0("Probability of observing 7 heads if p was ", p[9:15]),
+    x = 0, y = lik[9:15] + 0.007,
+    hjust = 0
+  ),
+  size = 3,
+  color = magma(1)
+  )
+```
+
+## Maximum Likelihood for Continuous Distribution {.tabset}
+
+Because $p$ can take any value between 0 and 1, we are dealing with a continuous distribution. Let's plot this and find the value of $p$ that maximizes the likelihood function (i.e., the value of $p$ that is *most likely given the observed data*)
+
+```{r mle-10,  class.source = 'fold-show'}
+# Let's start with a sequence
+p <- seq(0, 1, 0.01)
+lik <- binom_lik(y = 7, n = 10, p = p)
+
+# which value of p maximizes the likelihood function?
+p_max_lik <- p[which.max(lik)]
+max_lik <- lik[which.max(lik)]
+```
+
+### Base R {-}
+
+```{r mle-11}
+plot(x = p,
+     y = lik,
+     xlim = c(0, 1),
+     ylim = c(0, 0.3),
+     pch = 19,
+     ylab = "L(p)",
+     xlab = "p",
+     type = "n",
+     las = 1,
+     xaxt = "n",
+     bty = "n")
+axis(1, seq(0, 1, 0.1))
+segments(x0 = p_max_lik,
+         x1 = p_max_lik,
+         y0 = 0,
+         y1 = max_lik,
+         col = magma(1),
+         lwd = 2)
+segments(x0 = 0,
+         x1 = p_max_lik,
+         y0 = max_lik,
+         y1 = max_lik,
+         col = magma(1),
+         lwd = 2)
+lines(x = p,
+     y = lik,
+     xlim = c(0,1),
+     ylim = c(0, 0.3),
+     pch = 19)
+text(x = 0,
+     y = max_lik + 0.01,
+     labels = "Maximum likelihood estimate: p = 0.7",
+     col = magma(1),
+     cex = 0.7,
+     pos = 4)
+```
+
+### ggplot2 {-}
+
+```{r mle-12, class.source = "fold-hide"}
+ggplot() +
+  geom_line(aes(x = p, y = lik)) +
+  geom_segment(aes(
+    y = max_lik, yend = 0, x = p_max_lik, xend = p_max_lik
+  ),
+  color = magma(1, direction = -1)
+  ) +
+  geom_segment(aes(
+    y = max_lik, yend = max_lik, x = p_max_lik, xend = 0
+  ),
+  color = magma(1, direction = -1)
+  ) +
+  labs(y = "L(p)") +
+  geom_text(aes(
+    label = paste0("Maximum likelihood estimate: p = 0.7"),
+    x = 0.1, y = max_lik + 0.007,
+    hjust = 0
+  ),
+  color = magma(1, direction = -1)
+  ) +
+  scale_x_continuous(breaks = seq(0, 1, by = 0.1))
+```
+
+
+---
+
+## Exercise section: Example from the lecture {.tabset}
+
+Let's do this again for the example from the lecture: out of 10 students, 6 passed.
+
+We are again dealing with a binomial process, so the likelihood function is the same:
+
+$$
+L(p|y,N) = \frac{N!}{(N-y)!y!}p^y(1-p)^{N-y}
+$$
+
+```{r mle-13,  class.source = 'fold-show'}
+binom_lik <- function(y, n, p) {
+  factorial(n) / (factorial(n - y) * factorial(y)) * p ^ y * (1 - p) ^ (n - y)
+}
+```
+
+Your task: find the value of $p$ that maximizes the likelihood function. To achieve this, you need to do the following steps:
+
+  - Create a vector with possible values for $p$.
+  - Use the likelihood function to calculate the likelihood of $p$ given our data (y = 6, n = 10).
+  - Look for the p-value that maximizes the Likelihood function.
+  
+
+```{r mle-14, eval=FALSE,  class.source = 'fold-show'}
+# 1) Create a vector with possible values for p. Name the vector p.
+p <- seq(0, 1, 0.01)
+# 2) Calculate likelihood of p given our data (y = 6, n = 10).
+# The object holding the results should be named res.
+lik <- binom_lik(y = 6, n = 10, p = p)
+# 3) Look for the p-value that maximizes the Likelihood function.
+# Name the object max_lik_p
+p_max_lik <- p[which.max(lik)]
+max_lik <- lik[which.max(lik)]
+```
+
+```{r}
+p_max_lik
+max_lik
+```
+
+  - What do you think is the probability of passing the exam?
+  - Extra question: What would you have to do to solve this exercise analytically?
+
+```{r}
+plot(x = p,
+     y = lik,
+     xlim = c(0, 1),
+     ylim = c(0, 0.3),
+     pch = 19,
+     ylab = "L(p)",
+     xlab = "p",
+     type = "n",
+     las = 1,
+     xaxt = "n",
+     bty = "n")
+axis(1, seq(0, 1, 0.1))
+segments(x0 = p_max_lik,
+         x1 = p_max_lik,
+         y0 = 0,
+         y1 = max_lik,
+         col = magma(1),
+         lwd = 2)
+segments(x0 = 0,
+         x1 = p_max_lik,
+         y0 = max_lik,
+         y1 = max_lik,
+         col = magma(1),
+         lwd = 2)
+lines(x = p,
+     y = lik,
+     xlim = c(0,1),
+     ylim = c(0, 0.3),
+     pch = 19)
+text(x = 0,
+     y = max_lik + 0.01,
+     labels = "Maximum likelihood estimate: p = 0.7",
+     col = magma(1),
+     cex = 0.7,
+     pos = 4)
+```
+
+
+If you did everything correctly (and named your objects accordingly), you can plot your results:
+
+### Base R {-}
+
+```{r mle-15, eval = F}
+plot(
+  p,
+  res,
+  type = "l",
+  las = 1,
+  bty = "n",
+  ylab = "L(p)"
+)
+abline(v = max_lik_p, 
+       col = magma(1))
+```
+
+---
+
+### ggplot2 {-}
+
+```{r mle-16, eval=FALSE}
+ggplot() +
+  geom_line(aes(x = p, y = res)) +
+  geom_vline(
+  xintercept = max_lik_p,
+  color = magma(1)
+  )
+  labs(y = "L(p)") +
+  scale_x_continuous(breaks = seq(0, 1, by = 0.1))
+```
+
+---
+
+## Built-in Functions {.tabset}
+
+Of course there are also function libraries to search for the Maximum value of the Likelihood function.
+
+For one-dimensional problems, we can Maximize the Likelihood function using `optimize()`. Disclaimer: We will usually not maximize one-dimensional likelihood functions from now on.
+
+```{r mle-17,  class.source = 'fold-show'}
+res_opt <-
+  optimize(
+    f = binom_lik, 
+    # f is the function we want to optimize (here: maximize).
+    interval = c(0, 1),
+    # we need to specify an interval of values where we want to look for the maximum
+    y = 6,
+    n = 10,
+    # y and n is the data we actually observed
+    maximum = T
+    # finally, we need to tell the function that we are looking for a maximum.
+  )
+
+res_opt
+```
+### Base R {-}
+
+```{r mle-18, eval=FALSE}
+plot(
+  p,
+  res,
+  type = "l",
+  las = 1,
+  bty = "n",
+  ylab = "L(p)",
+  col = magma(3)[3]
+)
+abline(v = max_lik_p, 
+       col = magma(3)[2],
+       lwd = 2)
+abline(v = res_opt$maximum,
+       col = magma(3)[1],
+       lwd = 2,
+       lty = "dashed")
+legend("topleft",
+       col = c(magma(3)[3],
+               magma(3)[2],
+               magma(3)[1]),
+       lty = c("solid", 
+               "solid", 
+               "dashed"),
+       legend = c("Likelihood function",
+                  "max(Likelihood), by hand",
+                  "max(Likelihood), optimize()"),
+       bty = "n",
+       cex = 0.85)
+```
+### ggplot2 {-}
+
+```{r mle-19, eval=FALSE}
+plot <- data.frame(value = rbind(max_lik_p, res_opt$maximum))
+plot$estimation <- c("max(Likelihood), by hand",
+                     "max(Likelihood), optimize()")
+ggplot() +
+  geom_line(aes(x = p, y = res)) +
+  geom_vline(
+  aes(xintercept = plot$value,
+      color = plot$estimation),
+  lty = c(1, 2)
+  ) +
+  labs(y = "L(p)",
+       color = "") +
+  scale_x_continuous(breaks = seq(0, 1, by = 0.1)) +
+  scale_color_viridis_d(option = "magma", direction = -1, end = 0.7)
+```
+
+## Log-Likelihood
+
+In practice, the log of the likelihood is usually used. 
+Why? Taking the logarithm does not change the maximum of the function but changes products to sums and thus makes calculations easier.
+
+
+### Step 1: Write down (a.k.a. translate from the slides) the Log-Likelihood function {-}
+
+$$
+\log L(p| y, N) = \log\left[\frac{N!}{(N-y)! y!}\right] + y \log p + (N-y)\: \log (1-p)
+$$
+
+```{r mle-20,  class.source = 'fold-show'}
+binom_loglik <- function(y, n, p) {
+  log(factorial(n) / (factorial(n - y) * factorial(y))) + 
+    y * log(p) + (n - y) * log(1 - p)
+}
+```
+
+### Step 2: Maximize the function using optimize {-}
+ 
+```{r mle-21,  class.source = 'fold-show'}
+res <- optimize(
+  f = binom_loglik,
+  interval = c(0, 1),
+  y = 6,
+  n = 10,
+  maximum = T
+)
+```
+
+### Step 3: Also make a plot of the Log-Likelihood function. And include a line of the maximum likelihood estimate. {- .tabset}
+
+```{r mle-22,  class.source = 'fold-show'}
+p <- seq(0, 1, length.out = 1000)
+res_loglik <- binom_loglik(6, 10, p)
+```
+
+#### Base R {-}
+
+```{r mle-23}
+plot(
+  p,
+  res_loglik,
+  type = "l",
+  ylim = c(-10, 0),
+  las = 1,
+  bty = "n",
+  ylab = "logL(p)",
+  col = magma(2)[1]
+)
+abline(v = res$maximum,
+       col = magma(2)[2],
+       lwd = 2,
+       lty = "dashed")
+```
+
+#### ggplot2 {-}
+
+```{r mle-24}
+ggplot() +
+  geom_line(aes(x = p, y = res_loglik), color =  magma(2)[1]) +
+  geom_vline(
+  xintercept = res$maximum,
+  lty = "dashed",
+  size = 1
+  ) +
+  labs(y = "logL(p)") +
+  scale_x_continuous(breaks = seq(0, 1, by = 0.1)) 
+```
+
+
+### {- .tabset}
+
+We could also compare the two log-likelihood functions from Slide 10, to show that they lead to the same result:
+
+$$
+\log L(p| y, N) = y\, \log p + (N-y)\: \log (1-p)\\ 
+$$
+
+```{r mle-25,  class.source = 'fold-show'}
+binom_loglik2 <- function(y, n, p) {
+  y * log(p) + (n - y) * log(1 - p)
+  
+}
+
+p <- seq(0, 1, length.out = 1000)
+
+res2 <- binom_loglik2(6, 10, p)
+max_loglik_p2 <- p[which.max(res2)]
+```
+
+#### Base R {-}
+
+```{r mle-26}
+plot(
+  p,
+  res_loglik,
+  type = "l",
+  ylim = c(-20, 0),
+  las = 1,
+  bty = "n",
+  ylab = "logL(p)",
+  col = viridis(4)[1]
+)
+abline(v = res$maximum, 
+       lwd = 2,
+       col = viridis(4)[3])
+lines(x = p, 
+      y = res2, 
+      lty = "dashed",
+      col = viridis(4)[2])
+abline(v = max_loglik_p2, 
+       lwd = 2,
+       lty = "dashed",
+       col = viridis(4)[4])
+
+legend("topleft",
+       col = c(viridis(4)[1],
+               viridis(4)[2],
+               viridis(4)[3],
+               viridis(4)[4]),
+       lty = c("solid", 
+               "dashed", 
+               "solid", 
+               "dashed"),
+       legend = c("LogLik 1",
+                  "LogLik 2 (simplified)",
+                  "max(LogLik 1)",
+                  "max(LogLik 2)"),
+       bty = "n",
+       cex = 0.75)
+```
+
+Both likelihood function obviously lead to the same p, but are shifted.
+
+#### ggplot2 {-}
+
+```{r mle-27}
+ggplot() +
+  geom_line(aes(x = p, y = res_loglik, color = "LogLik 1")) +
+  geom_line(aes(x = p, y = res2,  color = "LogLik 2 (simplified)"), lty = 2) +
+  geom_vline(aes(
+    xintercept = c(res$maximum, max_loglik_p2),
+    color = c("max(LogLik 1)", "max(LogLik 2)")
+  ),
+  lty = 1:2,
+  size = 1) +
+  labs(y = "logL(p)",
+       color = "") +
+  scale_x_continuous(breaks = seq(0, 1, by = 0.1)) +
+  scale_color_viridis(discrete = TRUE) 
+```
+
+Both likelihood function obviously lead to the same p, but are shifted.
+
+---
+
+# MLE: Linear Model Without Covariates {.tabset}
+
+As we did many times before, we start with some fake data:
+
+We set the true parameter values.
+
+```{r mle-28,  class.source = 'fold-show'}
+b0 <- 5
+sigma2 <- 4
+```
+
+Then we generate a dependent variable. We only have an intercept and random noise.
+
+```{r mle-29,  class.source = 'fold-show'}
+Y <- b0 + rnorm(100000, 0, sqrt(sigma2))
+```
+
+Now we want to write down the Log-Likelihood function for a linear model without any covariates. (Have a look at slide 18.). 
+
+$$
+log L(\beta_0, \sigma^2) = -\frac{N}{2} log(\sigma^2) - \frac{1}{2\sigma^2} \sum_{i=1}^{N} (y_i - \beta_0)^2
+$$
+
+Optimizing routines need a vector with all the parameters. This is $\theta$.
+
+```{r mle-30,  class.source = 'fold-show'}
+lmsimple_loglik <- function(y, theta) {
+  N <- length(y)
+  
+  b0 <- theta[1]
+  sigma2 <-
+    exp(theta[2]) #constrain variance so that it is always positive
+  
+  logl <-
+    -(N / 2) * log(sigma2) - 1 / (2 * sigma2) * sum((y - b0) ^ 2)
+  
+  return(logl)
+}
+```
+
+Since we are leaving the one-dimensional world now, we start to use some new optimizing routine. We use the `optimx` package.
+
+In order for `optimx` to find the peak of mount likelihood we need to tell it were to start.
+
+```{r mle-31,  class.source = 'fold-show'}
+stval <- c(0, 0)
+```
+
+Now we can optimize the Log-Likelihood function.
+
+```{r mle-32,  class.source = 'fold-show'}
+res <-
+  optimx(
+    par = stval,
+    # we need to input our start values,
+    f = lmsimple_loglik,
+    # the Log-Likelihood function we optimize,
+    y = Y,
+    # our data,
+    control = list(maximize = T)
+    # and tell optimx to maximize rather than to minimize.
+  )  
+```
+
+There are other packages for optimization out there. If you want you can experiment with them: e.g. maxLik, optim. 
+
+```{r mle-33,  class.source = 'fold-show'}
+res
+mean(Y)
+```
+
+Why is $\sigma^2 \approx$ `r round(res$p2[1],2)`?
+
+```{r mle-34,  class.source = 'fold-show'}
+log(4)
+
+exp(res$p2[1])
+
+```
+
+If we hold $\sigma^2$ fixed, we can make a (2D) plot of the log likelihood function.
+
+```{r mle-35,  class.source = 'fold-show'}
+b <- seq(-10, 10, length.out = 1000)
+
+res <-
+  sapply(b, function(x)
+    lmsimple_loglik(y = Y, theta = cbind(x, sigma2)))
+
+min_loglik_b <- b[which.max(res)]
+```
+
+## Base R {-}
+
+```{r mle-36}
+plot(
+  b,
+  res,
+  type = "l",
+  bty = "n",
+  ylab = "logL",
+  xlab = expression(beta),
+  yaxt = "n",
+  col = magma(2)[1],
+)
+axis_ticks <- pretty(min(res):max(res))
+axis(2,
+     at = axis_ticks,
+     labels = paste0(axis_ticks/1000, "k"),
+     las = 1)
+abline(v = min_loglik_b,
+       lwd = 2,
+       col = magma(2)[2])
+```
+
+## ggplot2 {-}
+
+
+```{r mle-37}
+ggplot() +
+  geom_line(aes(x = b, y = res), color =  magma(2)[1]) +
+  geom_vline(
+  xintercept = min_loglik_b,
+  lty = "dashed",
+  size = 1
+  ) +
+  labs(y = "logL(p)",
+       x = expression(beta)) +
+  scale_y_continuous(breaks = scales::pretty_breaks(), 
+                     labels = scales::label_comma())
+```
+
+# MLE: Linear Model With One Covariate
+
+Let's load some very familiar data.
+
+```{r mle-38,  class.source = 'fold-show'}
+dat <- read.dta("raw-data/uspresidentialelections.dta")
+```
+
+To make it easier to write our log-likelihood function we specify our variables as Y and X.
+
+```{r mle-39,  class.source = 'fold-show'}
+Y <- dat$vote
+X <- dat$growth
+```
+
+Let's estimate our simple bivariate model using Maximum Likelihood Estimation.
+
+## Example: Implement a maximum likelihood estimation with one covariate. {-}
+
+First, we modify our log-likelihood function from above to include one covariate.
+Any ideas how we can modify it?
+
+
+$$
+log L(\beta_0, \beta_1, \sigma^2) = -\frac{N}{2} log(\sigma^2) - \frac{1}{2\sigma^2} \sum_{i=1}^{N} (y_i - \beta_0 - \beta_1 x_i)^2
+$$
+
+```{r mle-40,  class.source = 'fold-show'}
+lm_loglik <- function(y, x, theta) {
+  N <- length(y)
+  
+  # theta contains our parameters to be estimated
+  
+  beta0 <- theta[1]
+  beta1 <- theta[2]
+  sigma2 <- exp(theta[3])
+  
+  logl <-
+    -N / 2 * log(sigma2) - 1 / (2 * sigma2) * sum((y - beta0 - beta1 * x) ^ 2)
+  return(logl)
+}
+```
+
+---
+
+Now we can optimize!
+
+We now need 3 starting values. 
+
+**What are the 3 values?**
+
+```{r mle-41,  class.source = 'fold-show'}
+stval <- c(0, 0, 0)
+```
+
+Now we have everything (a log-likelihood function we want to maximize and starting values) that we need to optimize.
+
+```{r mle-42,  class.source = 'fold-show'}
+res <-
+  optimx(
+    stval,
+    lm_loglik,
+    y = Y,
+    x = X,
+    control = list(maximize = T)
+  )
+
+res
+```
+
+
+Finally, we want to know whether MLE gives us similar results to what OLS would have told us.
+
+```{r mle-43,  class.source = 'fold-show'}
+ols <- lm(Y ~ X)
+
+ols
+```
+
+It's looking good.
+
+
+We can easily extend the model to 2 or more covariates.
+However, it is convenient to introduce some matrix notation for that.
+We will do that in Advanced Quantitative Methods next spring!
+
+
+# Concluding Remarks {-}
+
+
+In your Homework for this week you will:
+
+*  Estimate the likelihood to pass an exam using maximum likelihood.
+*  Re-visit a data set you already know and compare the results of a OLS regression with the results of a ML regression.
